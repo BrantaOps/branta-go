@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Initial release of the Branta Go SDK.
-- Feature-parity port of `branta-rust` 3.2.1 (and `branta-dotnet`, `branta-js`, `branta-dart`, `branta-python`, `branta-kotlin`).
+- Feature-parity port of the 3.2.2 language SDKs (`branta-rust`, `branta-dotnet`, `branta-js`, `branta-dart`, `branta-python`, `branta-kotlin`).
 - `BrantaService` with `GetPayments`, `GetPaymentsByQRCode`, `AddPayment`, and `IsAPIKeyValid`.
 - `PaymentBuilder` fluent builder with ZK support, metadata encryption, and child platform tagging.
 - `QRParser` handles `bitcoin:`/`lightning:` URIs and plain-text values, with full query-string decoding.
