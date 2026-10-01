@@ -287,7 +287,7 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-[`pkg.go.dev/github.com/BrantaOps/branta-go`](https://pkg.go.dev/github.com/BrantaOps/branta-go) indexes the tag automatically. The Go module major version is 1 (import path `github.com/BrantaOps/branta-go`) per [Go module conventions](https://go.dev/ref/mod#major-version-suffixes); functionality matches sibling SDKs at 3.2.1.
+[`pkg.go.dev/github.com/BrantaOps/branta-go`](https://pkg.go.dev/github.com/BrantaOps/branta-go) indexes the tag automatically. The Go module major version is 1 (import path `github.com/BrantaOps/branta-go`) per [Go module conventions](https://go.dev/ref/mod#major-version-suffixes); functionality matches sibling SDKs at 3.2.2.
 
 # Development
 
