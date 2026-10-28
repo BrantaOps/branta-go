@@ -110,6 +110,13 @@ func TestPlainArkAddress(t *testing.T) {
 	}
 }
 
+func TestPlainSignetArkAddress(t *testing.T) {
+	p := NewQRParser("tark1qqjqtest")
+	if p.DestinationType() != ArkAddress {
+		t.Fatal("tark")
+	}
+}
+
 func TestPlainSilentPaymentSp1(t *testing.T) {
 	p := NewQRParser("sp1qqwl5p9jhz0000h5zkvlf9gfqv9dl9qjp5ggq5x3fw")
 	if p.DestinationType() != SilentPayment {

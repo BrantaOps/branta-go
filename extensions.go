@@ -13,9 +13,10 @@ func IsBolt11(value string) bool {
 	return strings.HasPrefix(lower, "lnbc") || strings.HasPrefix(lower, "lntb") || strings.HasPrefix(lower, "lnbcrt")
 }
 
-// IsArk reports whether value looks like an Ark address.
+// IsArk reports whether value looks like an Ark address (mainnet ark1, signet/regtest tark1).
 func IsArk(value string) bool {
-	return strings.HasPrefix(strings.ToLower(value), "ark1")
+	lower := strings.ToLower(value)
+	return strings.HasPrefix(lower, "ark1") || strings.HasPrefix(lower, "tark1")
 }
 
 // IsSilentPayment reports whether value looks like a silent payment address.
