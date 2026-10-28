@@ -1,0 +1,17 @@
+name: Live integration
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 12 * * *"
+
+jobs:
+  guardrail:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Example QR codes against staging and production
+        run: go test -count=1 -run 'Test(Production|Staging)'
