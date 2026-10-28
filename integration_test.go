@@ -16,10 +16,13 @@ func skipIntegration(t *testing.T) {
 }
 
 func service(base branta.BrantaServerBaseURL, privacy branta.PrivacyMode) *branta.BrantaService {
-	return branta.NewBrantaService(branta.BrantaClientOptions{
+	opts := branta.BrantaClientOptions{
 		BaseURL: base,
 		Privacy: privacy,
-	})
+	}
+	client := branta.NewBrantaClient(opts)
+	client.SetIntegrationMetricsToken(os.Getenv("BRANTA_INTEGRATION_METRICS_TOKEN"))
+	return branta.NewBrantaServiceWithDeps(opts, client, branta.AESEncryptionService{}, branta.GuidSecretGenerator{})
 }
 
 const notFound = "bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
