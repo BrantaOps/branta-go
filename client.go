@@ -25,9 +25,10 @@ type Client interface {
 
 // BrantaClient is the production HTTP client.
 type BrantaClient struct {
-	http            *http.Client
-	defaultOptions  BrantaClientOptions
-	baseURLOverride string // test-only: point at httptest.Server
+	http                    *http.Client
+	defaultOptions          BrantaClientOptions
+	baseURLOverride         string // test-only: point at httptest.Server
+	integrationMetricsToken string
 }
 
 // NewBrantaClient constructs a client with the given default options.
@@ -36,6 +37,13 @@ func NewBrantaClient(defaultOptions BrantaClientOptions) *BrantaClient {
 		http:           &http.Client{},
 		defaultOptions: defaultOptions,
 	}
+}
+
+// SetIntegrationMetricsToken sets the secret sent on payment lookups.
+// Live integration tests set it from BRANTA_INTEGRATION_METRICS_TOKEN so Guardrail
+// can leave that traffic out of GET metrics. An empty token sends no header.
+func (c *BrantaClient) SetIntegrationMetricsToken(token string) {
+	c.integrationMetricsToken = token
 }
 
 func (c *BrantaClient) baseURL(options *BrantaClientOptions) string {
@@ -124,6 +132,9 @@ func (c *BrantaClient) GetPayments(ctx context.Context, destinationValue string,
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/v2/payments/"+encoded, nil)
 	if err != nil {
 		return []Payment{}, nil
+	}
+	if c.integrationMetricsToken != "" {
+		req.Header.Set("X-Branta-Integration-Token", c.integrationMetricsToken)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {

@@ -16,6 +16,40 @@ func clientFor(server *httptest.Server) *BrantaClient {
 	return c
 }
 
+func TestGetPaymentsSendsIntegrationMetricsToken(t *testing.T) {
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("X-Branta-Integration-Token")
+		_, _ = w.Write([]byte("[]"))
+	}))
+	defer server.Close()
+
+	client := clientFor(server)
+	client.SetIntegrationMetricsToken("secret")
+	if _, err := client.GetPayments(context.Background(), "value", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got != "secret" {
+		t.Fatalf("header %q", got)
+	}
+}
+
+func TestGetPaymentsOmitsIntegrationMetricsTokenWhenEmpty(t *testing.T) {
+	var present bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, present = r.Header["X-Branta-Integration-Token"]
+		_, _ = w.Write([]byte("[]"))
+	}))
+	defer server.Close()
+
+	if _, err := clientFor(server).GetPayments(context.Background(), "value", nil); err != nil {
+		t.Fatal(err)
+	}
+	if present {
+		t.Fatal("header was set")
+	}
+}
+
 func TestGetPaymentsPercentEncodesPathSegmentIncludingPlusSlashEquals(t *testing.T) {
 	ciphertext := "abc+def/ghi="
 	encoded := "abc%2Bdef%2Fghi%3D"
