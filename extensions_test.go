@@ -14,8 +14,10 @@ func TestIsBolt11CaseInsensitivePrefixes(t *testing.T) {
 }
 
 func TestIsArkCaseInsensitivePrefix(t *testing.T) {
-	if !IsArk("ark1qsomething") || !IsArk("ARK1QSOMETHING") {
-		t.Fatal("ark")
+	for _, v := range []string{"ark1qsomething", "ARK1QSOMETHING", "tark1qsomething", "TARK1QSOMETHING"} {
+		if !IsArk(v) {
+			t.Errorf("expected ark: %s", v)
+		}
 	}
 	if IsArk("bc1qsomething") {
 		t.Fatal("not ark")
@@ -39,6 +41,9 @@ func TestHashZkTypeOnlyBolt11ArkSilentPayment(t *testing.T) {
 	}
 	if HashZkType("ark1...") != ArkAddress {
 		t.Fatal("ark")
+	}
+	if HashZkType("tark1...") != ArkAddress {
+		t.Fatal("tark")
 	}
 	if HashZkType("sp1...") != SilentPayment {
 		t.Fatal("sp")
