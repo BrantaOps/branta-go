@@ -208,3 +208,74 @@ func TestEmptyInputDoesNotPanic(t *testing.T) {
 		t.Fatal("empty")
 	}
 }
+
+func TestBip321BcAndTbAreOnChainAddresses(t *testing.T) {
+	p := NewQRParser("bitcoin:?bc=bc1qmerchant&tb=tb1qtest")
+	if len(p.Destinations) != 3 {
+		t.Fatalf("len %d", len(p.Destinations))
+	}
+	if p.Destinations[0].Value != "" || p.Destinations[1].Value != "bc1qmerchant" || p.Destinations[2].Value != "tb1qtest" {
+		t.Fatalf("%+v", p.Destinations)
+	}
+	if p.Destinations[1].Type != BitcoinAddress || p.Destinations[2].Type != BitcoinAddress {
+		t.Fatalf("%+v", p.Destinations)
+	}
+	if p.HasUnverifiableInstruction {
+		t.Fatal("bc/tb are verifiable")
+	}
+}
+
+func TestSpParamAddsSilentPayment(t *testing.T) {
+	p := NewQRParser("bitcoin:bc1qmerchant?sp=sp1qqexample")
+	if len(p.Destinations) != 2 || p.Destinations[1].Value != "sp1qqexample" || p.Destinations[1].Type != SilentPayment {
+		t.Fatalf("%+v", p.Destinations)
+	}
+	if p.HasUnverifiableInstruction {
+		t.Fatal("sp is hash-zk")
+	}
+}
+
+func TestLnoAndPayAreUnverifiable(t *testing.T) {
+	lno := NewQRParser("bitcoin:bc1qmerchant?lno=lno1qqexample")
+	if len(lno.Destinations) != 2 || lno.Destinations[1].Value != "lno1qqexample" || lno.Destinations[1].Type != Bolt12 {
+		t.Fatalf("%+v", lno.Destinations)
+	}
+	if !lno.HasUnverifiableInstruction {
+		t.Fatal("lno")
+	}
+
+	pay := NewQRParser("bitcoin:bc1qmerchant?pay=bitcoin:bc1qother")
+	if !pay.HasUnverifiableInstruction {
+		t.Fatal("pay")
+	}
+	if len(pay.Destinations) != 1 || pay.Destinations[0].Value != "bc1qmerchant" {
+		t.Fatalf("%+v", pay.Destinations)
+	}
+}
+
+func TestBolt12AndLnurlAreUnverifiable(t *testing.T) {
+	for _, qr := range []string{
+		"lightning:lno1qqexample",
+		"lightning:lnurl1qqexample",
+		"bitcoin:bc1qmerchant?bolt12=lno1qqexample",
+	} {
+		if !NewQRParser(qr).HasUnverifiableInstruction {
+			t.Fatalf("expected unverifiable: %s", qr)
+		}
+	}
+}
+
+func TestHashZkAndBitcoinInstructionsAreVerifiable(t *testing.T) {
+	for _, qr := range []string{
+		"bitcoin:bc1qmerchant",
+		"lightning:lnbc100n1ptest",
+		"bitcoin:bc1qmerchant?lightning=lnbc100n1ptest&ark=ark1qq",
+		"bitcoin:?bc=bc1qmerchant",
+		"lnbc100n1ptest",
+		"lno1plainTextNotUri",
+	} {
+		if NewQRParser(qr).HasUnverifiableInstruction {
+			t.Fatalf("expected verifiable: %s", qr)
+		}
+	}
+}
