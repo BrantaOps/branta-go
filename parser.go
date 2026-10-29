@@ -19,6 +19,10 @@ type QRParser struct {
 	Destinations            []QRDestination
 	OnChainEncryptionText   string
 	OnChainEncryptionSecret string
+	// HasUnverifiableInstruction is true when the QR carries a payable
+	// instruction this SDK cannot bind to a decrypted destination (bolt12,
+	// lno=, pay=, LNURL, or any other non-hash-ZK, non-bitcoin value).
+	HasUnverifiableInstruction bool
 }
 
 // NewQRParser parses qrText.
@@ -55,18 +59,46 @@ func NewQRParser(qrText string) QRParser {
 		Value: destValue,
 		Type:  destType,
 	})
+	if destValue != "" && destType != BitcoinAddress && HashZkType(destValue) == "" {
+		parser.HasUnverifiableInstruction = true
+	}
 
 	query := parseQuery(extractQuery(text))
 	parser.OnChainEncryptionText = query["branta_id"]
 	parser.OnChainEncryptionSecret = query["branta_secret"]
 
-	for _, key := range []string{"lightning", "bolt12", "ark", "silent_payment"} {
-		if value, ok := query[key]; ok {
-			parser.Destinations = append(parser.Destinations, QRDestination{
-				Value: value,
-				Type:  detectPlainTextType(value),
-			})
+	addBindable := func(key string, onChain bool) {
+		value, ok := query[key]
+		if !ok {
+			return
 		}
+		destType := detectPlainTextType(value)
+		switch {
+		case onChain:
+			destType = BitcoinAddress
+		case key == "lno":
+			if value == "" {
+				destType = ""
+			} else if destType == "" {
+				destType = Bolt12
+			}
+		}
+		parser.Destinations = append(parser.Destinations, QRDestination{Value: value, Type: destType})
+		if value != "" && !onChain && HashZkType(value) == "" {
+			parser.HasUnverifiableInstruction = true
+		}
+	}
+
+	addBindable("lightning", false)
+	addBindable("bolt12", false)
+	addBindable("ark", false)
+	addBindable("silent_payment", false)
+	addBindable("bc", true)
+	addBindable("tb", true)
+	addBindable("sp", false)
+	addBindable("lno", false)
+	if query["pay"] != "" {
+		parser.HasUnverifiableInstruction = true
 	}
 
 	return parser

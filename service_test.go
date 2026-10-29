@@ -682,9 +682,15 @@ func TestQRBase58CaseMismatchRejects(t *testing.T) {
 
 func TestQRLightningWithZkParamsNoPlainAddressDecryptsWithoutComparison(t *testing.T) {
 	client := &mockClient{getFn: func(string) ([]Payment, error) {
-		return []Payment{{Destinations: []Destination{zkDest("CIPHERTEXT", "zk-1", BitcoinAddress)}}}, nil
+		return []Payment{{Destinations: []Destination{
+			zkDest("CIPHERTEXT", "zk-1", BitcoinAddress),
+			zkDest("LN-CIPHERTEXT", "zk-2", Bolt11),
+		}}}, nil
 	}}
-	aes := &mockAES{decryptFn: func(string, string) (string, error) {
+	aes := &mockAES{decryptFn: func(value, _ string) (string, error) {
+		if value == "LN-CIPHERTEXT" {
+			return "lnbc1qsomething", nil
+		}
 		return "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", nil
 	}}
 	qr := "lightning:lnbc1qsomething?branta_id=onchain-id&branta_secret=onchain-secret"
@@ -716,6 +722,164 @@ func TestQRCombinedZkSwappedAddressRejects(t *testing.T) {
 		GetPaymentsByQRCode(context.Background(), qr, nil)
 	if !errors.Is(err, ErrTampered) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+const boundAddress = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
+const wrongSecretQR = "00000000-0000-4000-8000-000000000000"
+
+func zkBitcoinClient() *mockClient {
+	return &mockClient{getFn: func(string) ([]Payment, error) {
+		return []Payment{{Destinations: []Destination{zkDest("CIPHERTEXT", "zk-1", BitcoinAddress)}}}, nil
+	}}
+}
+
+func decryptsBitcoinOnly() *mockAES {
+	return &mockAES{decryptFn: func(value, key string) (string, error) {
+		if value == "CIPHERTEXT" && key == "onchain-secret" {
+			return boundAddress, nil
+		}
+		return "", &DecryptionError{Err: errors.New("auth tag mismatch")}
+	}}
+}
+
+func failsToDecrypt() *mockAES {
+	return &mockAES{decryptFn: func(string, string) (string, error) {
+		return "", &DecryptionError{Err: errors.New("auth tag mismatch")}
+	}}
+}
+
+func TestQRSwappedAddressAndWrongSecretReturnsNoPayments(t *testing.T) {
+	qr := "bitcoin:" + swappedAddress + "?branta_id=onchain-id&branta_secret=" + wrongSecretQR
+	result, err := svc(looseOptions(), zkBitcoinClient(), failsToDecrypt(), &mockSecrets{}).
+		GetPaymentsByQRCode(context.Background(), qr, nil)
+	if err != nil || len(result.Payments) != 0 || result.VerifyURL == "" {
+		t.Fatalf("%+v %v", result, err)
+	}
+}
+
+func TestQRBoundAddressWrongSecretReturnsNoPayments(t *testing.T) {
+	qr := "bitcoin:" + boundAddress + "?branta_id=onchain-id&branta_secret=" + wrongSecretQR
+	result, err := svc(looseOptions(), zkBitcoinClient(), decryptsBitcoinOnly(), &mockSecrets{}).
+		GetPaymentsByQRCode(context.Background(), qr, nil)
+	if err != nil || len(result.Payments) != 0 {
+		t.Fatalf("%+v %v", result, err)
+	}
+}
+
+func TestQRAttackerLightningLegReturnsNoPayments(t *testing.T) {
+	qr := "bitcoin:" + boundAddress + "?branta_id=onchain-id&branta_secret=onchain-secret&lightning=lnbc1attacker"
+	result, err := svc(looseOptions(), zkBitcoinClient(), decryptsBitcoinOnly(), &mockSecrets{}).
+		GetPaymentsByQRCode(context.Background(), qr, nil)
+	if err != nil || len(result.Payments) != 0 {
+		t.Fatalf("%+v %v", result, err)
+	}
+}
+
+func TestQRAttackerArkLegReturnsNoPayments(t *testing.T) {
+	qr := "bitcoin:" + boundAddress + "?branta_id=onchain-id&branta_secret=onchain-secret&ark=ark1attacker"
+	result, err := svc(looseOptions(), zkBitcoinClient(), decryptsBitcoinOnly(), &mockSecrets{}).
+		GetPaymentsByQRCode(context.Background(), qr, nil)
+	if err != nil || len(result.Payments) != 0 {
+		t.Fatalf("%+v %v", result, err)
+	}
+}
+
+func TestQRBip321BcSwapRejects(t *testing.T) {
+	qr := "bitcoin:?bc=" + swappedAddress + "&branta_id=onchain-id&branta_secret=onchain-secret"
+	_, err := svc(looseOptions(), zkBitcoinClient(), decryptsBitcoinOnly(), &mockSecrets{}).
+		GetPaymentsByQRCode(context.Background(), qr, nil)
+	if !errors.Is(err, ErrTampered) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestQRBip321BcMatchResolves(t *testing.T) {
+	qr := "bitcoin:?bc=" + boundAddress + "&branta_id=onchain-id&branta_secret=onchain-secret"
+	result, err := svc(looseOptions(), zkBitcoinClient(), decryptsBitcoinOnly(), &mockSecrets{}).
+		GetPaymentsByQRCode(context.Background(), qr, nil)
+	if err != nil || len(result.Payments) != 1 {
+		t.Fatalf("%+v %v", result, err)
+	}
+	if d := result.Payments[0].Destinations[0]; d.Value != boundAddress || d.IsEncrypted {
+		t.Fatalf("%+v", d)
+	}
+}
+
+func TestQRPathAndBcDisagreeRejectsBeforeLookup(t *testing.T) {
+	client := &mockClient{getFn: func(string) ([]Payment, error) {
+		t.Fatal("should not hit network")
+		return nil, nil
+	}}
+	qr := "bitcoin:" + boundAddress + "?bc=" + swappedAddress + "&branta_id=onchain-id&branta_secret=onchain-secret"
+	_, err := svc(looseOptions(), client, decryptsBitcoinOnly(), &mockSecrets{}).
+		GetPaymentsByQRCode(context.Background(), qr, nil)
+	if !errors.Is(err, ErrTampered) {
+		t.Fatalf("got %v", err)
+	}
+	if len(client.getCalls) != 0 {
+		t.Fatalf("calls %v", client.getCalls)
+	}
+}
+
+func TestQRPayInstructionReturnsNoPaymentsWithoutLookup(t *testing.T) {
+	client := zkBitcoinClient()
+	qr := "bitcoin:" + boundAddress + "?pay=bitcoin:" + swappedAddress + "&branta_id=onchain-id&branta_secret=onchain-secret"
+	result, err := svc(looseOptions(), client, decryptsBitcoinOnly(), &mockSecrets{}).
+		GetPaymentsByQRCode(context.Background(), qr, nil)
+	if err != nil || len(result.Payments) != 0 || result.VerifyURL == "" {
+		t.Fatalf("%+v %v", result, err)
+	}
+	if len(client.getCalls) != 0 {
+		t.Fatalf("calls %v", client.getCalls)
+	}
+}
+
+func TestQRLnoInstructionReturnsNoPaymentsWithoutLookup(t *testing.T) {
+	client := zkBitcoinClient()
+	qr := "bitcoin:" + boundAddress + "?lno=lno1qqattacker&branta_id=onchain-id&branta_secret=onchain-secret"
+	result, err := svc(looseOptions(), client, decryptsBitcoinOnly(), &mockSecrets{}).
+		GetPaymentsByQRCode(context.Background(), qr, nil)
+	if err != nil || len(result.Payments) != 0 {
+		t.Fatalf("%+v %v", result, err)
+	}
+	if len(client.getCalls) != 0 {
+		t.Fatalf("calls %v", client.getCalls)
+	}
+}
+
+func TestQRLnurlInstructionReturnsNoPaymentsWithoutLookup(t *testing.T) {
+	client := zkBitcoinClient()
+	result, err := svc(looseOptions(), client, decryptsBitcoinOnly(), &mockSecrets{}).
+		GetPaymentsByQRCode(context.Background(), "lightning:lnurl1qqattacker?branta_id=onchain-id&branta_secret=onchain-secret", nil)
+	if err != nil || len(result.Payments) != 0 {
+		t.Fatalf("%+v %v", result, err)
+	}
+	if len(client.getCalls) != 0 {
+		t.Fatalf("calls %v", client.getCalls)
+	}
+}
+
+func TestQRNoPayableInstructionWrongSecretReturnsEncryptedRecord(t *testing.T) {
+	qr := "bitcoin:?branta_id=onchain-id&branta_secret=" + wrongSecretQR
+	result, err := svc(looseOptions(), zkBitcoinClient(), failsToDecrypt(), &mockSecrets{}).
+		GetPaymentsByQRCode(context.Background(), qr, nil)
+	if err != nil || len(result.Payments) != 1 {
+		t.Fatalf("%+v %v", result, err)
+	}
+	if d := result.Payments[0].Destinations[0]; d.Value != "CIPHERTEXT" || !d.IsEncrypted {
+		t.Fatalf("%+v", d)
+	}
+}
+
+func TestQRTestnetBech32MatchesCaseInsensitively(t *testing.T) {
+	const tb = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"
+	aes := &mockAES{decryptFn: func(string, string) (string, error) { return tb, nil }}
+	qr := "bitcoin:" + strings.ToUpper(tb) + "?branta_id=onchain-id&branta_secret=onchain-secret"
+	result, err := svc(looseOptions(), zkBitcoinClient(), aes, &mockSecrets{}).
+		GetPaymentsByQRCode(context.Background(), qr, nil)
+	if err != nil || len(result.Payments) != 1 {
+		t.Fatalf("%+v %v", result, err)
 	}
 }
 
