@@ -18,12 +18,12 @@ Single Go package `branta` at module root `github.com/BrantaOps/branta-go` (do n
 - `encryption.go` — AES-256-GCM encrypt/decrypt.
 - `secret.go` — `SecretGenerator` / `GuidSecretGenerator`.
 - `examples/branta_example` — runnable end-to-end demo; README code samples should stay aligned with it.
-- `integration_test.go` — live staging/production lookups, skipped when `BRANTA_SKIP_INTEGRATION` is set.
+- `integration_test.go` — live staging/production lookups, skipped unless `BRANTA_RUN_INTEGRATION=1`.
 
 ### Build / test / release
 
 - Test: `go test ./...`
-- Skip integration tests: `BRANTA_SKIP_INTEGRATION=1 go test ./...`
+- Live integration tests: `BRANTA_RUN_INTEGRATION=1 go test ./...`
 - Format: `go fmt ./...`
 - Vet: `go vet ./...`
 - Release: tag `vX.Y.Z` and push; pkg.go.dev indexes automatically. Keep the module path at `github.com/BrantaOps/branta-go` (major version 0 or 1 only). Functionality tracks sibling SDKs at 3.2.x.

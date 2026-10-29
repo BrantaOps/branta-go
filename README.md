@@ -293,8 +293,7 @@ git push origin v1.0.2
 
 ```bash
 go test ./...
-BRANTA_SKIP_INTEGRATION=1 go test ./...    # skip the live integration suite
-go test -run Integration                   # integration tests only (requires network)
+BRANTA_RUN_INTEGRATION=1 go test ./...     # live Guardrail lookups (opt-in)
 go fmt ./...
 go vet ./...
 go run ./examples/branta_example

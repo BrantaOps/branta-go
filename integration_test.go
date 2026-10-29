@@ -10,8 +10,8 @@ import (
 
 func skipIntegration(t *testing.T) {
 	t.Helper()
-	if os.Getenv("BRANTA_SKIP_INTEGRATION") != "" {
-		t.Skip("BRANTA_SKIP_INTEGRATION is set")
+	if os.Getenv("BRANTA_RUN_INTEGRATION") != "1" {
+		t.Skip("Live lookups skipped unless BRANTA_RUN_INTEGRATION=1")
 	}
 }
 
