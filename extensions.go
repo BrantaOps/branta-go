@@ -25,9 +25,10 @@ func IsSilentPayment(value string) bool {
 	return strings.HasPrefix(lower, "sp1") || strings.HasPrefix(lower, "tsp1")
 }
 
-// HashZkType returns bolt11, ark, or silent payment for value, or empty.
-// BIP21 extras this SDK cannot encrypt (lno, pay, bolt12, lnurl) are empty.
-func HashZkType(value string) DestinationType {
+// DerivedKeyType returns bolt11, Ark, or silent payment for value, or empty.
+// A bolt11, Ark address, or silent payment is encrypted with a key derived
+// from the value. Other BIP21 extras are empty. They are not destination types.
+func DerivedKeyType(value string) DestinationType {
 	if IsBolt11(value) {
 		return Bolt11
 	}
@@ -41,9 +42,9 @@ func HashZkType(value string) DestinationType {
 }
 
 // ToNormalizedHash returns SHA-256(lowercase(value)) as 64-char uppercase hex,
-// matching .NET's Convert.ToHexString. This value doubles as the AES secret
-// for hash-ZK destinations, so a case mismatch here silently breaks cross-SDK
-// payment lookups.
+// matching .NET's Convert.ToHexString. This is the AES secret for a derived-key
+// destination (bolt11, Ark, or silent payment). A case mismatch here breaks
+// cross-SDK payment lookups.
 func ToNormalizedHash(value string) string {
 	sum := sha256.Sum256([]byte(strings.ToLower(value)))
 	return strings.ToUpper(hex.EncodeToString(sum[:]))

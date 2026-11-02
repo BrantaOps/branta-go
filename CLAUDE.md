@@ -1,6 +1,6 @@
 # Branta Go SDK
 
-If you are implementing this SDK in a consumer project: product rules (send vs receive, `match` / `unknown` / `tampered`, parent platforms) live in the [developer docs](https://developer.branta.pro). `README.md` is the Go install, constructor, and samples.
+If you are implementing this SDK in a consumer project: product rules (send vs receive, `match` / `unknown` / `tampered` / `incomplete`, parent platforms) live in the [developer docs](https://developer.branta.pro). `README.md` is the Go install, constructor, and samples.
 
 ---
 
@@ -31,7 +31,7 @@ Publishing a breaking 4.0 as `v4.0.0` requires the module path `github.com/Brant
 
 ### Key behaviors to preserve
 
-- **`Verify` returns a result.** `match` includes payments and `VerifyURL`. `unknown`, `tampered`, and `incomplete` include only `VerifyURL`. Do not return an error for a swapped address. A 404 is `unknown`. Any other non-OK response, and a network failure, is `incomplete`. Malformed JSON and `LogoURLDomainMismatchError` still return an error.
+- **`Verify` returns a result.** `match` includes payments and `VerifyURL`. `unknown`, `tampered`, and `incomplete` include only `VerifyURL`. Do not return an error for a swapped address. A 404 is `unknown`. A 5xx, a 429, or no network is `incomplete`. Malformed JSON and `LogoURLDomainMismatchError` still return an error.
 - **Unencrypted destinations are not supported.** A raw on-chain address, including testnet `tb1` and `bcrt1`, is `unknown` and does not GET. `AddPayment` encrypts every destination. Types that cannot be encrypted return `UnsupportedDestinationTypeError`.
 - **`DestinationType` is only what `AddPayment` accepts:** `bitcoin_address`, `bolt11`, `ark_address`, `silent_payment`. BIP21 extras this SDK cannot encrypt (`lno`, `pay`, non-bolt11 `lightning`) make `Verify` return `unknown`. They are not destination types.
 - **`branta_id` / `branta_secret` with no payable destination is `unknown`.** A bolt11, Ark, or silent-payment GET hit is `unknown` unless a destination of that type decrypts to the scanned value, case-insensitively. A different plaintext is `tampered` for the whole call.

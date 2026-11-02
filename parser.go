@@ -20,8 +20,9 @@ type QRParser struct {
 	OnChainEncryptionText   string
 	OnChainEncryptionSecret string
 	// HasUnverifiableInstruction is true when the QR carries a payable
-	// instruction this SDK cannot bind to a decrypted destination (bolt12,
-	// lno=, pay=, LNURL, or any other non-hash-ZK, non-bitcoin value).
+	// instruction this SDK cannot bind to a decrypted destination. That is any
+	// value other than a bitcoin address or a derived key (bolt11, Ark, or
+	// silent payment), including bolt12, lno, and pay.
 	HasUnverifiableInstruction bool
 }
 
@@ -59,7 +60,7 @@ func NewQRParser(qrText string) QRParser {
 		Value: destValue,
 		Type:  destType,
 	})
-	if destValue != "" && destType != BitcoinAddress && HashZkType(destValue) == "" {
+	if destValue != "" && destType != BitcoinAddress && DerivedKeyType(destValue) == "" {
 		parser.HasUnverifiableInstruction = true
 	}
 
@@ -77,7 +78,7 @@ func NewQRParser(qrText string) QRParser {
 			destType = BitcoinAddress
 		}
 		parser.Destinations = append(parser.Destinations, QRDestination{Value: value, Type: destType})
-		if value != "" && !onChain && HashZkType(value) == "" {
+		if value != "" && !onChain && DerivedKeyType(value) == "" {
 			parser.HasUnverifiableInstruction = true
 		}
 	}

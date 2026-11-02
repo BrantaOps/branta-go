@@ -4,9 +4,9 @@ import "fmt"
 
 // Sentinel errors returned by fallible SDK operations.
 //
-// Verify does not return ErrTampered or ErrIncomplete. Those are internal:
-// Verify turns them into VerifyTampered and VerifyIncomplete. A logo URL on
-// the wrong origin still returns LogoURLDomainMismatchError.
+// A tampered destination and an unfinished lookup are VerifyTampered and
+// VerifyIncomplete, not errors. A logo URL on the wrong origin still returns
+// LogoURLDomainMismatchError.
 var (
 	ErrUnauthorized = fmt.Errorf("Unauthorized")
 

@@ -125,7 +125,7 @@ func (s *BrantaService) verifyParsed(ctx context.Context, parser QRParser, optio
 	if parser.IsOnChainZk() {
 		var additionalValues []string
 		for _, d := range parser.Destinations {
-			if HashZkType(d.Value) != "" {
+			if DerivedKeyType(d.Value) != "" {
 				additionalValues = append(additionalValues, d.Value)
 			}
 		}
@@ -140,7 +140,7 @@ func (s *BrantaService) verifyParsed(ctx context.Context, parser QRParser, optio
 	}
 
 	destination, _ := parser.Destination()
-	if HashZkType(destination) == "" {
+	if DerivedKeyType(destination) == "" {
 		return VerifyResult{Status: VerifyUnknown, VerifyURL: s.buildVerifyURL(options, destination, nil)}, nil
 	}
 
@@ -263,7 +263,7 @@ func (s *BrantaService) AddPayment(ctx context.Context, payment Payment, options
 			continue
 		}
 
-		if HashZkType(destination.Value) == "" {
+		if DerivedKeyType(destination.Value) == "" {
 			return AddPaymentResult{}, &UnsupportedDestinationTypeError{Type: destination.Type}
 		}
 		normalized := strings.ToLower(destination.Value)
@@ -357,7 +357,7 @@ func (s *BrantaService) decryptDestinations(
 // decryptDerivedKeyDestinations reports whether a destination of plainValue's
 // type decrypted to that value. A different plaintext is errTampered.
 func (s *BrantaService) decryptDerivedKeyDestinations(payment *Payment, plainValue string, keys *orderedKeys) (bool, error) {
-	derived := HashZkType(plainValue)
+	derived := DerivedKeyType(plainValue)
 	if derived == "" {
 		return false, nil
 	}

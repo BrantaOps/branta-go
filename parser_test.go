@@ -310,7 +310,7 @@ func TestDuplicateQueryKeyKeepsTheFirstValue(t *testing.T) {
 	}
 }
 
-func TestHashZkAndBitcoinInstructionsAreVerifiable(t *testing.T) {
+func TestDerivedKeyAndBitcoinInstructionsAreVerifiable(t *testing.T) {
 	for _, qr := range []string{
 		"bitcoin:bc1qmerchant",
 		"lightning:lnbc100n1ptest",

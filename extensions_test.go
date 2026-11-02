@@ -35,25 +35,25 @@ func TestIsSilentPaymentCaseInsensitivePrefixes(t *testing.T) {
 	}
 }
 
-func TestHashZkTypeOnlyBolt11ArkSilentPayment(t *testing.T) {
-	if HashZkType("lnbc1...") != Bolt11 {
+func TestDerivedKeyTypeOnlyBolt11ArkSilentPayment(t *testing.T) {
+	if DerivedKeyType("lnbc1...") != Bolt11 {
 		t.Fatal("bolt11")
 	}
-	if HashZkType("ark1...") != ArkAddress {
+	if DerivedKeyType("ark1...") != ArkAddress {
 		t.Fatal("ark")
 	}
-	if HashZkType("tark1...") != ArkAddress {
+	if DerivedKeyType("tark1...") != ArkAddress {
 		t.Fatal("tark")
 	}
-	if HashZkType("sp1...") != SilentPayment {
+	if DerivedKeyType("sp1...") != SilentPayment {
 		t.Fatal("sp")
 	}
 }
 
-func TestHashZkTypeExcludesNonHashZkTypes(t *testing.T) {
+func TestDerivedKeyTypeExcludesNonDerivedKeyTypes(t *testing.T) {
 	for _, v := range []string{"lno1...", "LNURL1...", "user@example.com", "0x00000000000000000000000000000000000000", "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"} {
-		if got := HashZkType(v); got != "" {
-			t.Errorf("%s should not be hash-ZK, got %s", v, got)
+		if got := DerivedKeyType(v); got != "" {
+			t.Errorf("%s should not be a derived key, got %s", v, got)
 		}
 	}
 }
