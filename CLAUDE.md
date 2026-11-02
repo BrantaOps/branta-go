@@ -8,7 +8,7 @@ If you are implementing this SDK in a consumer project: product rules (send vs r
 
 ### Package layout
 
-Single Go package `branta` at module root `github.com/BrantaOps/branta-go`. Do not add a `/v2` subdirectory. That collides with Go module major-version import paths.
+Single Go package `branta` at module root `github.com/BrantaOps/branta-go/v4`. Do not add a `/v2` subdirectory. That collides with Go module major-version import paths.
 
 - `enums.go`, `options.go`, `errors.go`, `extensions.go`, `models.go` — shared primitives.
 - `service.go` — `BrantaService`. `Verify` and `AddPayment` are the public entry points.
@@ -27,7 +27,7 @@ Single Go package `branta` at module root `github.com/BrantaOps/branta-go`. Do n
 - Format: `go fmt ./...`
 - Vet: `go vet ./...`
 
-Publishing a breaking 4.0 as `v4.0.0` requires the module path `github.com/BrantaOps/branta-go/v4`. That cut is separate from this port. Keep developing on `github.com/BrantaOps/branta-go` until the release is cut.
+The module path is `github.com/BrantaOps/branta-go/v4`. Tag `v4.0.0` on the commit that contains that path. `go get github.com/BrantaOps/branta-go` stays on `v1.0.3`.
 
 ### Key behaviors to preserve
 

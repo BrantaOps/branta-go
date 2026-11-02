@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BrantaOps/branta-go"
+	"github.com/BrantaOps/branta-go/v4"
 )
 
 func skipIntegration(t *testing.T) {

@@ -11,7 +11,7 @@ Go 1.22 or higher.
 ## Install
 
 ```bash
-go get github.com/BrantaOps/branta-go
+go get github.com/BrantaOps/branta-go/v4
 ```
 
 ## Send

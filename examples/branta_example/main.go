@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/BrantaOps/branta-go"
+	"github.com/BrantaOps/branta-go/v4"
 )
 
 func main() {
