@@ -27,7 +27,7 @@ type QRParser struct {
 
 // NewQRParser parses qrText.
 func NewQRParser(qrText string) QRParser {
-	text := strings.TrimSpace(qrText)
+	text := normalizeQRText(qrText)
 	parser := QRParser{}
 
 	scheme, ok := uriScheme(text)
@@ -179,9 +179,32 @@ func parseQuery(query string) map[string]string {
 		if err != nil {
 			decodedValue = value
 		}
-		m[strings.ToLower(decodedKey)] = decodedValue
+		lowered := strings.ToLower(decodedKey)
+		if _, exists := m[lowered]; exists {
+			continue
+		}
+		m[lowered] = decodedValue
 	}
 	return m
+}
+
+// normalizeQRText matches URL parsers: drop leading and trailing C0 controls
+// and spaces, then drop tab, line feed, and carriage return anywhere. A control
+// byte inside "bitcoin:" has to leave a typed address, or the swap check never runs.
+func normalizeQRText(qrText string) string {
+	value := strings.TrimSpace(qrText)
+	start := 0
+	end := len(value)
+	for start < end && value[start] <= 0x20 {
+		start++
+	}
+	for end > start && value[end-1] <= 0x20 {
+		end--
+	}
+	value = value[start:end]
+	value = strings.ReplaceAll(value, "\t", "")
+	value = strings.ReplaceAll(value, "\n", "")
+	return strings.ReplaceAll(value, "\r", "")
 }
 
 func lightningSchemeType(dest string) DestinationType {

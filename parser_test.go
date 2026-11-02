@@ -274,6 +274,42 @@ func TestBolt12AndLnurlAreUnverifiable(t *testing.T) {
 	}
 }
 
+func TestControlCharInSchemeTypesBitcoinAddress(t *testing.T) {
+	for _, prefix := range []string{"bitcoi\tn:", "bitcoi\nn:", "bitcoi\rn:", "\x01bitcoin:"} {
+		p := NewQRParser(prefix + "1attackeraddr?branta_id=ID1&branta_secret=SEC1")
+		dest, _ := p.Destination()
+		if !p.IsOnChainZk() || dest != "1attackeraddr" || p.DestinationType() != BitcoinAddress {
+			t.Fatalf("prefix %q: %+v", prefix, p)
+		}
+		if p.OnChainEncryptionText != "ID1" || p.OnChainEncryptionSecret != "SEC1" {
+			t.Fatalf("prefix %q: text=%q secret=%q", prefix, p.OnChainEncryptionText, p.OnChainEncryptionSecret)
+		}
+	}
+}
+
+func TestTabInsideAddressUsesTheAddressAUrlParserWouldPay(t *testing.T) {
+	p := NewQRParser("bitcoin:1attac\tkeraddr?branta_id=ID1&branta_secret=SEC1")
+	dest, _ := p.Destination()
+	if dest != "1attackeraddr" || p.DestinationType() != BitcoinAddress {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestTabInsideLightningSchemeStillTypesBolt11(t *testing.T) {
+	p := NewQRParser("lightnin\tg:lnbc100n1ptest")
+	dest, _ := p.Destination()
+	if dest != "lnbc100n1ptest" || p.DestinationType() != Bolt11 {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestDuplicateQueryKeyKeepsTheFirstValue(t *testing.T) {
+	p := NewQRParser("bitcoin:1attackeraddr?branta_id=ID1&branta_secret=SEC1&branta_secret=ATTACKER")
+	if p.OnChainEncryptionText != "ID1" || p.OnChainEncryptionSecret != "SEC1" {
+		t.Fatalf("text=%q secret=%q", p.OnChainEncryptionText, p.OnChainEncryptionSecret)
+	}
+}
+
 func TestHashZkAndBitcoinInstructionsAreVerifiable(t *testing.T) {
 	for _, qr := range []string{
 		"bitcoin:bc1qmerchant",

@@ -18,7 +18,7 @@ Single Go package `branta` at module root `github.com/BrantaOps/branta-go`. Do n
 - `encryption.go` — AES-256-GCM.
 - `secret.go` — `GuidSecretGenerator`.
 - `examples/branta_example` — runnable demo. README samples should stay aligned with it.
-- `integration_test.go` — live staging lookups, skipped unless `BRANTA_RUN_INTEGRATION=1`.
+- `integration_test.go` — live production and staging example QR codes, skipped unless `BRANTA_RUN_INTEGRATION=1`. The scheduled workflow runs `Test(Production|Staging)`.
 
 ### Build / test
 
@@ -48,5 +48,5 @@ Publishing a breaking 4.0 as `v4.0.0` requires the module path `github.com/Brant
 
 - Consumers use `BrantaService`. `Client`, `QRParser`, and AES types live in the same package because Go has no export list. Do not document them as the integration entry.
 - `NewBrantaService(options)` for production. `NewBrantaServiceWithDeps` injects `Client`, `AESEncryption`, and `SecretGenerator` for tests.
-- `NewQRParser` does not return an error. Unrecognized input is an untyped destination.
+- `NewQRParser` does not return an error. Unrecognized input is an untyped destination. It drops tab, line feed, and carriage return, plus leading and trailing C0 controls, before it types a destination. A repeated query key keeps the first value.
 - Keep parity with `branta-js`, `branta-python`, and `branta-dotnet`.
