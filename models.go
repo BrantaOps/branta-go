@@ -75,11 +75,13 @@ type Platform struct {
 // Description is not a plaintext API field. AddPayment folds it into encrypted
 // metadata, and Verify lifts it back after metadata decrypts.
 // ParentPlatform is deserialize-only: set by the server, never sent on a POST.
+// TTL is seconds. Zero is unset and is left off the POST so Guardrail applies
+// its default. A posted 0 is stored for 30 seconds.
 type Payment struct {
 	Description          string        `json:"-"`
 	Destinations         []Destination `json:"destinations"`
 	CreatedAt            string        `json:"created_at,omitempty"`
-	TTL                  int           `json:"ttl"`
+	TTL                  int           `json:"ttl,omitempty"`
 	Metadata             string        `json:"metadata,omitempty"`
 	Platform             string        `json:"platform,omitempty"`
 	PlatformLogoURL      string        `json:"platform_logo_url,omitempty"`
@@ -94,7 +96,7 @@ func (p Payment) MarshalJSON() ([]byte, error) {
 	type paymentWire struct {
 		Destinations         []Destination `json:"destinations"`
 		CreatedAt            string        `json:"created_at,omitempty"`
-		TTL                  int           `json:"ttl"`
+		TTL                  int           `json:"ttl,omitempty"`
 		Metadata             string        `json:"metadata,omitempty"`
 		Platform             string        `json:"platform,omitempty"`
 		PlatformLogoURL      string        `json:"platform_logo_url,omitempty"`

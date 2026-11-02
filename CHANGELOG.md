@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Verify` status `incomplete` when the lookup does not finish (5xx, 429, or no network). A 404 is `unknown`.
 
 ### Fixed
+- An unset `TTL` is left off the POST. Guardrail then applies its 7-day default. A posted `0` is stored for 30 seconds.
 - `Verify` of a bolt11, Ark, or silent payment is `unknown` unless a destination of that type decrypts. A different plaintext is `tampered`. Case differences still match.
 - `Verify` of `branta_id` / `branta_secret` with no payable destination is `unknown` and does not look the record up.
 - A raw on-chain address, including `tb1` and `bcrt1`, is `unknown` and is not fetched.

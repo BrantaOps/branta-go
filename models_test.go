@@ -105,6 +105,9 @@ func TestPaymentWireOmitsDescriptionAndParent(t *testing.T) {
 	if obj["created_at"] != "2026-01-01T00:00:00Z" {
 		t.Fatal("created_at")
 	}
+	if obj["ttl"] != float64(600) {
+		t.Fatalf("ttl: %s", raw)
+	}
 	if _, ok := obj["description"]; ok {
 		t.Fatal("description must not appear")
 	}
@@ -124,6 +127,20 @@ func TestPaymentWireOmitsDescriptionAndParent(t *testing.T) {
 	}
 	if _, ok := obj["parent_platform"]; ok {
 		t.Fatal("parent_platform must not appear on serialize")
+	}
+}
+
+func TestPaymentOmitsUnsetTTL(t *testing.T) {
+	raw, err := json.Marshal(Payment{Destinations: []Destination{NewDestination("abc", BitcoinAddress)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := obj["ttl"]; ok {
+		t.Fatalf("unset ttl must be omitted, got %s", raw)
 	}
 }
 
