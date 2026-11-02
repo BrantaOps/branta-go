@@ -10,8 +10,8 @@ func TestAddDestinationWithoutType(t *testing.T) {
 	if len(payment.Destinations) != 1 || payment.Destinations[0].Value != "addr1" {
 		t.Fatalf("%+v", payment.Destinations)
 	}
-	if payment.Destinations[0].Type != "" || payment.Destinations[0].IsZk {
-		t.Fatal("type/zk")
+	if payment.Destinations[0].Type != "" || payment.Destinations[0].ID != "" {
+		t.Fatal("type/id")
 	}
 }
 
@@ -19,30 +19,6 @@ func TestAddDestinationWithType(t *testing.T) {
 	payment := NewPaymentBuilder().AddDestination("addr1", BitcoinAddress).Build()
 	if payment.Destinations[0].Type != BitcoinAddress {
 		t.Fatal(payment.Destinations[0].Type)
-	}
-}
-
-func TestSetZkMarksOnlyTheLastAddedDestination(t *testing.T) {
-	payment := NewPaymentBuilder().
-		AddDestination("addr1", "").
-		AddDestination("addr2", "").
-		SetZk().
-		Build()
-	if payment.Destinations[0].IsZk || payment.Destinations[0].ZkID != "" {
-		t.Fatal("first should not be zk")
-	}
-	if !payment.Destinations[1].IsZk || payment.Destinations[1].ZkID == "" {
-		t.Fatal("second should be zk")
-	}
-}
-
-func TestSetZkAssignsAFreshZkIDEachCall(t *testing.T) {
-	payment := NewPaymentBuilder().
-		AddDestination("addr1", "").SetZk().
-		AddDestination("addr2", "").SetZk().
-		Build()
-	if payment.Destinations[0].ZkID == payment.Destinations[1].ZkID {
-		t.Fatal("zk ids should differ")
 	}
 }
 
@@ -106,10 +82,9 @@ func TestFullChainBuildsExpectedPayment(t *testing.T) {
 	payment := NewPaymentBuilder().
 		SetDescription("Testing description").
 		AddDestination("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", BitcoinAddress).
-		SetZk().
 		SetTTL(600).
 		Build()
-	if payment.Description != "Testing description" || payment.TTL != 600 || !payment.Destinations[0].IsZk {
+	if payment.Description != "Testing description" || payment.TTL != 600 || payment.Destinations[0].Type != BitcoinAddress {
 		t.Fatalf("%+v", payment)
 	}
 }

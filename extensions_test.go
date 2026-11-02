@@ -75,7 +75,7 @@ func TestToNormalizedHashIsCaseInsensitiveOnInput(t *testing.T) {
 }
 
 func TestToURLFragmentEmpty(t *testing.T) {
-	if ToURLFragment(newOrderedKeys()) != "#" {
+	if ToURLFragment(newOrderedKeys()) != "" {
 		t.Fatal("empty fragment")
 	}
 }
@@ -84,6 +84,14 @@ func TestToURLFragmentSingleKey(t *testing.T) {
 	keys := newOrderedKeys()
 	keys.set("zk-1", "secret-1")
 	if ToURLFragment(keys) != "#k-zk-1=secret-1" {
+		t.Fatalf("got %s", ToURLFragment(keys))
+	}
+}
+
+func TestToURLFragmentEncodesReservedCharacters(t *testing.T) {
+	keys := newOrderedKeys()
+	keys.set("a b", "x&y")
+	if ToURLFragment(keys) != "#k-a%20b=x%26y" {
 		t.Fatalf("got %s", ToURLFragment(keys))
 	}
 }

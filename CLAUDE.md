@@ -1,6 +1,6 @@
 # Branta Go SDK
 
-If you are implementing this SDK in a consumer project, see the **Integration Guide** section at the top of `README.md` — it covers integration types, recommended flows, and rules.
+If you are implementing this SDK in a consumer project: product rules (send vs receive, `match` / `unknown` / `tampered`, parent platforms) live in the [developer docs](https://developer.branta.pro). `README.md` is the Go install, constructor, and samples.
 
 ---
 
@@ -8,50 +8,45 @@ If you are implementing this SDK in a consumer project, see the **Integration Gu
 
 ### Package layout
 
-Single Go package `branta` at module root `github.com/BrantaOps/branta-go` (do not add a `/v2` subdirectory — that would collide with Go module major-version import paths).
+Single Go package `branta` at module root `github.com/BrantaOps/branta-go`. Do not add a `/v2` subdirectory. That collides with Go module major-version import paths.
 
 - `enums.go`, `options.go`, `errors.go`, `extensions.go`, `models.go` — shared primitives.
-- `service.go` — `BrantaService`, the public entry point.
-- `client.go` — raw HTTP client (`BrantaClient`); do not call directly from consumer code.
+- `service.go` — `BrantaService`. `Verify` and `AddPayment` are the public entry points.
+- `client.go` — raw HTTP client (`BrantaClient`). Do not call it from consumer code.
 - `builder.go` — `PaymentBuilder`.
-- `parser.go` — `QRParser` / `QRDestination`.
-- `encryption.go` — AES-256-GCM encrypt/decrypt.
-- `secret.go` — `SecretGenerator` / `GuidSecretGenerator`.
-- `examples/branta_example` — runnable end-to-end demo; README code samples should stay aligned with it.
-- `integration_test.go` — live staging/production lookups, skipped unless `BRANTA_RUN_INTEGRATION=1`.
+- `parser.go` — `QRParser`.
+- `encryption.go` — AES-256-GCM.
+- `secret.go` — `GuidSecretGenerator`.
+- `examples/branta_example` — runnable demo. README samples should stay aligned with it.
+- `integration_test.go` — live staging lookups, skipped unless `BRANTA_RUN_INTEGRATION=1`.
 
-### Build / test / release
+### Build / test
 
 - Test: `go test ./...`
 - Live integration tests: `BRANTA_RUN_INTEGRATION=1 go test ./...`
 - Format: `go fmt ./...`
 - Vet: `go vet ./...`
-- Release: tag `vX.Y.Z` and push; pkg.go.dev indexes automatically. Keep the module path at `github.com/BrantaOps/branta-go` (major version 0 or 1 only). Functionality tracks sibling SDKs at 3.2.x.
+
+Publishing a breaking 4.0 as `v4.0.0` requires the module path `github.com/BrantaOps/branta-go/v4`. That cut is separate from this port. Keep developing on `github.com/BrantaOps/branta-go` until the release is cut.
 
 ### Key behaviors to preserve
 
-- **`PrivacyStrict` is the default.** It forbids plain-text on-chain lookups (`GetPayments` returns `ErrPrivacyModeViolation`; `GetPaymentsByQRCode` returns an empty `PaymentsResult` with a populated `VerifyURL`) and forbids non-ZK destinations on `AddPayment`. `PrivacyLoose` removes those restrictions. Note the nuance in `GetPayments`: supplying *any* `destinationEncryptionKey` bypasses the Strict plain-lookup ban, even for a non-hash-ZK value — only `hashZkType == "" && destinationEncryptionKey == "" && Strict` errors.
-- **`VerifyURL` is always returned**, including on a miss.
-- **ZK destinations.** Bitcoin addresses are encrypted with one shared random secret per `AddPayment` call (UUID v4 via `GuidSecretGenerator`); hash-ZK types use a deterministic key derived from `SHA-256(lowercase(value))`. **Only `Bolt11`, `ArkAddress`, and `SilentPayment` are hash-ZK types** — `Bolt12`/`LnUrl`/`LnAddress`/`TetherAddress` are valid `DestinationType`s but `HashZkType` must keep returning empty for them. Don't "fix" this.
-- **Decryption failures are silently swallowed** inside `BrantaService` — a destination that fails to decrypt is simply left with `IsEncrypted = true`, never surfaced as an error. Metadata/DEK decryption follows the same rule, and is only attempted once per payment (guarded by `payment.IsMetadataDecrypted`).
-- **GET lookups never error.** Non-2xx, empty body, malformed JSON, or a transport failure all degrade to an empty slice inside `BrantaClient.GetPayments` — never propagate. Only `AddPayment`'s POST and the logo-domain check are allowed to return a real error.
-- **Crypto wire format must byte-for-byte match every sibling SDK.** Checked-in cross-SDK fixed vector: `Encrypt("hello world", "my-secret", true)` == `mPIKHc3ywVlsBHf3Lv2Rwpz2+fKE0kgUePq2m4fPIUidMuGEHVIB`.
-- **No retry logic, no configurable timeout.** This was explicitly removed from `branta-dotnet`'s history — don't reintroduce either.
-- **Path encoding** must match .NET `Uri.EscapeDataString` (unreserved = ALPHA / DIGIT / `-` `.` `_` `~`). `url.PathEscape` / `url.QueryEscape` are the wrong tools — they would leave `+`/`=` unencoded or turn `+` into space.
-
-### Known cross-SDK inconsistencies (do not "fix" unilaterally — coordinate across all sibling repos first)
-
-- `branta-kotlin` serializes the BTCPay field as `btcpay_server_plugin_version`; every other SDK (including this one) uses `btc_pay_server_plugin_version`.
-
-### Logo-URL domain validation
-
-`BrantaClient.verifyLogoURLs` checks every payment in a GET response (never just the first), and every logo-bearing field: `platform_logo_url`, `platform_logo_light_url`, `parent_platform.logo_url`/`logo_light_url`, and `child_platform.logo_url`/`logo_light_url`. A mismatch returns `LogoURLDomainMismatchError` naming the offending field.
+- **`Verify` returns a result.** `match` includes payments and `VerifyURL`. `unknown`, `tampered`, and `incomplete` include only `VerifyURL`. Do not return an error for a swapped address. A 404 is `unknown`. Any other non-OK response, and a network failure, is `incomplete`. Malformed JSON and `LogoURLDomainMismatchError` still return an error.
+- **Unencrypted destinations are not supported.** A raw on-chain address, including testnet `tb1` and `bcrt1`, is `unknown` and does not GET. `AddPayment` encrypts every destination. Types that cannot be encrypted return `UnsupportedDestinationTypeError`.
+- **`DestinationType` is only what `AddPayment` accepts:** `bitcoin_address`, `bolt11`, `ark_address`, `silent_payment`. BIP21 extras this SDK cannot encrypt (`lno`, `pay`, non-bolt11 `lightning`) make `Verify` return `unknown`. They are not destination types.
+- **`branta_id` / `branta_secret` with no payable destination is `unknown`.** A bolt11, Ark, or silent-payment GET hit is `unknown` unless a destination of that type decrypts to the scanned value, case-insensitively. A different plaintext is `tampered` for the whole call.
+- **`VerifyURL` is always returned.** Format: `{apiOrigin}/v2/verify/{lookup}` plus a fragment of per-destination keys on `match`. Fragment names and values use the `encodeURIComponent` set. An empty fragment is `""`. The path segment stays `pathEscape` (unreserved ALPHA / DIGIT / `-._~` only), so `+`, `/`, and `=` in ciphertext are encoded.
+- **Encryption.** Bitcoin addresses use a caller-supplied secret (UUID via `GuidSecretGenerator`) and a random nonce. bolt11, Ark, and silent payments use `ToNormalizedHash` and a deterministic nonce. `AddPayment` encrypts a copy and posts that copy. Description is folded into encrypted metadata and lifted after decrypt. The wire destination always sends `zk: true` and `zk_id` from `Destination.ID`.
+- **Public names.** `BrantaApiOptions` is the constructor argument and the per-call override (`Environment`, `APIKey`, `HMACSecret`). `BrantaEnvironment`. Context stays the first argument. Do not reintroduce `PrivacyMode`, `GetPayments`, `GetPaymentsByQRCode`, `BrantaClientOptions`, `DefaultAPIKey`, `SetZk`, `Destination.ZkID`, `Payment.DefaultValue`, or `btc_pay_server_plugin_version`.
+- **`zk: false` skips decrypt.** Missing `zk` also skips. `zk: true` attempts decrypt.
+- **Crypto wire format must match every sibling SDK.** `Encrypt("hello world", "my-secret", true)` == `mPIKHc3ywVlsBHf3Lv2Rwpz2+fKE0kgUePq2m4fPIUidMuGEHVIB`.
+- **No retry logic, no configurable timeout.**
+- **Logo check** covers every payment and all six logo fields. It runs on GET. `Verify` does not map that error to a status.
+- **HMAC.** `POST|{base}/v2/payments|{compact json}|{unix ts}` when a secret is set. Header `X-Branta-Integration-Token` stays for live tests.
 
 ### Conventions
 
-- Public API is flat at package `branta` (`branta.NewBrantaService`, etc.).
-- `BrantaClientOptions` can be passed per-call as `*BrantaClientOptions` to override constructor defaults, field-by-field (`GetBaseURL`/`GetPrivacy`/`GetAPIKey`/`GetHMACSecret`).
-- `NewBrantaService(options)` for production use; `NewBrantaServiceWithDeps(...)` injecting `Client`/`AESEncryption`/`SecretGenerator` for tests.
-- `NewQRParser` is infallible by design — no sibling SDK ever raises a QR-parse error; unrecognized input just yields an untyped destination.
-- HTTP methods take `context.Context` as the first argument (Go equivalent of cancellation tokens / coroutine cancellation).
-- Keep parity with `branta-dotnet`, `branta-js`, `branta-dart`, `branta-python`, `branta-kotlin`, `branta-rust`: any new method, option, or enum value here must be reflected in all six, and vice versa.
+- Consumers use `BrantaService`. `Client`, `QRParser`, and AES types live in the same package because Go has no export list. Do not document them as the integration entry.
+- `NewBrantaService(options)` for production. `NewBrantaServiceWithDeps` injects `Client`, `AESEncryption`, and `SecretGenerator` for tests.
+- `NewQRParser` does not return an error. Unrecognized input is an untyped destination.
+- Keep parity with `branta-js`, `branta-python`, and `branta-dotnet`.

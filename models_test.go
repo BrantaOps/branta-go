@@ -2,7 +2,6 @@ package branta
 
 import (
 	"encoding/json"
-	"errors"
 	"testing"
 )
 
@@ -10,10 +9,9 @@ func TestDestinationWireFormat(t *testing.T) {
 	d := Destination{
 		Value:        "abc",
 		IsPrimary:    true,
-		IsZk:         true,
-		IsEncrypted:  true, // must not appear in the JSON
+		IsEncrypted:  true,
 		Type:         BitcoinAddress,
-		ZkID:         "zk-1",
+		ID:           "zk-1",
 		EncryptedDEK: "dek",
 	}
 	raw, err := json.Marshal(d)
@@ -35,9 +33,8 @@ func TestDestinationWireFormat(t *testing.T) {
 	}
 }
 
-func TestDestinationOptionalFieldsOmittedWhenEmpty(t *testing.T) {
-	d := NewDestination("abc", "")
-	raw, err := json.Marshal(d)
+func TestDestinationMarshalAlwaysSendsZkTrue(t *testing.T) {
+	raw, err := json.Marshal(NewDestination("abc", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +42,7 @@ func TestDestinationOptionalFieldsOmittedWhenEmpty(t *testing.T) {
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		t.Fatal(err)
 	}
-	if obj["value"] != "abc" || obj["primary"] != false || obj["zk"] != false {
+	if obj["zk"] != true {
 		t.Fatalf("got %s", raw)
 	}
 	if _, ok := obj["type"]; ok {
@@ -53,30 +50,49 @@ func TestDestinationOptionalFieldsOmittedWhenEmpty(t *testing.T) {
 	}
 }
 
-func TestDestinationDeserializeDefaults(t *testing.T) {
+func TestDestinationZkFalseSkipsDecrypt(t *testing.T) {
 	var d Destination
-	if err := json.Unmarshal([]byte(`{"value": "abc"}`), &d); err != nil {
+	if err := json.Unmarshal([]byte(`{"value":"abc","zk":false}`), &d); err != nil {
 		t.Fatal(err)
 	}
-	if d.IsPrimary || d.IsZk || d.IsEncrypted || d.Type != "" {
+	if d.IsEncrypted {
+		t.Fatal("zk false must not decrypt")
+	}
+}
+
+func TestDestinationZkTrueAttemptsDecrypt(t *testing.T) {
+	var d Destination
+	if err := json.Unmarshal([]byte(`{"value":"abc","zk":true,"zk_id":"zk-1"}`), &d); err != nil {
+		t.Fatal(err)
+	}
+	if !d.IsEncrypted || d.ID != "zk-1" {
 		t.Fatalf("%+v", d)
 	}
 }
 
-func TestPaymentWireFormatFieldNames(t *testing.T) {
+func TestDestinationMissingZkSkipsDecrypt(t *testing.T) {
+	var d Destination
+	if err := json.Unmarshal([]byte(`{"value": "abc"}`), &d); err != nil {
+		t.Fatal(err)
+	}
+	if d.IsPrimary || d.IsEncrypted || d.Type != "" {
+		t.Fatalf("%+v", d)
+	}
+}
+
+func TestPaymentWireOmitsDescriptionAndParent(t *testing.T) {
 	payment := Payment{
-		Description:               "desc",
-		Destinations:              []Destination{NewDestination("abc", "")},
-		CreatedAt:                 "2026-01-01T00:00:00Z",
-		TTL:                       600,
-		Metadata:                  "{}",
-		Platform:                  "Acme",
-		PlatformLogoURL:           "https://example.com/logo.png",
-		PlatformLogoLightURL:      "https://example.com/logo-light.png",
-		ParentPlatform:            &Platform{Name: "Parent"},
-		ChildPlatform:             &Platform{Name: "Child"},
-		BtcPayServerPluginVersion: "1.0.0",
-		IsMetadataDecrypted:       true,
+		Description:          "desc",
+		Destinations:         []Destination{NewDestination("abc", "")},
+		CreatedAt:            "2026-01-01T00:00:00Z",
+		TTL:                  600,
+		Metadata:             "{}",
+		Platform:             "Acme",
+		PlatformLogoURL:      "https://example.com/logo.png",
+		PlatformLogoLightURL: "https://example.com/logo-light.png",
+		ParentPlatform:       &Platform{Name: "Parent"},
+		ChildPlatform:        &Platform{Name: "Child"},
+		IsMetadataDecrypted:  true,
 	}
 	raw, err := json.Marshal(payment)
 	if err != nil {
@@ -89,12 +105,19 @@ func TestPaymentWireFormatFieldNames(t *testing.T) {
 	if obj["created_at"] != "2026-01-01T00:00:00Z" {
 		t.Fatal("created_at")
 	}
-	if obj["btc_pay_server_plugin_version"] != "1.0.0" {
-		t.Fatal("btc_pay_server_plugin_version")
+	if _, ok := obj["description"]; ok {
+		t.Fatal("description must not appear")
+	}
+	if _, ok := obj["btc_pay_server_plugin_version"]; ok {
+		t.Fatal("btc pay field must not appear")
 	}
 	child := obj["child_platform"].(map[string]any)
 	if child["name"] != "Child" {
 		t.Fatal("child name")
+	}
+	dest := obj["destinations"].([]any)[0].(map[string]any)
+	if dest["zk"] != true {
+		t.Fatal("destination zk")
 	}
 	if _, ok := obj["is_metadata_decrypted"]; ok {
 		t.Fatal("is_metadata_decrypted must not appear")
@@ -111,25 +134,5 @@ func TestPaymentParentPlatformRoundTripsOnDeserialize(t *testing.T) {
 	}
 	if payment.ParentPlatform == nil || payment.ParentPlatform.Name != "Parent" {
 		t.Fatalf("%+v", payment.ParentPlatform)
-	}
-}
-
-func TestDefaultValueErrorsOnNoDestinations(t *testing.T) {
-	_, err := Payment{}.DefaultValue()
-	if !errors.Is(err, ErrNoDestinations) {
-		t.Fatalf("got %v", err)
-	}
-}
-
-func TestDefaultValueReturnsFirstDestination(t *testing.T) {
-	payment := Payment{
-		Destinations: []Destination{
-			NewDestination("first", ""),
-			NewDestination("second", ""),
-		},
-	}
-	got, err := payment.DefaultValue()
-	if err != nil || got != "first" {
-		t.Fatalf("got %q %v", got, err)
 	}
 }

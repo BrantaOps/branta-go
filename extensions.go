@@ -3,8 +3,8 @@ package branta
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"strings"
-	"unicode"
 )
 
 // IsBolt11 reports whether value looks like a BOLT-11 invoice.
@@ -25,12 +25,8 @@ func IsSilentPayment(value string) bool {
 	return strings.HasPrefix(lower, "sp1") || strings.HasPrefix(lower, "tsp1")
 }
 
-// HashZkType returns the hash-ZK DestinationType for value, or empty if it
-// isn't one of the three hash-ZK types (bolt11, ark, silent payment).
-//
-// Intentionally returns empty for Bolt12 / LnUrl / LnAddress / TetherAddress —
-// those are valid DestinationTypes but are NOT hash-ZK types in any sibling
-// SDK. Do not "fix" this.
+// HashZkType returns bolt11, ark, or silent payment for value, or empty.
+// BIP21 extras this SDK cannot encrypt (lno, pay, bolt12, lnurl) are empty.
 func HashZkType(value string) DestinationType {
 	if IsBolt11(value) {
 		return Bolt11
@@ -53,17 +49,45 @@ func ToNormalizedHash(value string) string {
 	return strings.ToUpper(hex.EncodeToString(sum[:]))
 }
 
-// ToURLFragment builds a `#k-{zk_id}={key}&k-{zk_id2}={key2}...` URL fragment
-// from resolved decryption keys, iterating in insertion order.
+// ToURLFragment builds a `#k-{id}={key}&...` fragment from resolved decryption
+// keys, in insertion order. Names and values are percent-encoded with the
+// encodeURIComponent reserved set. An empty map returns "".
 func ToURLFragment(keys *orderedKeys) string {
 	if keys == nil || len(keys.keys) == 0 {
-		return "#"
+		return ""
 	}
 	parts := make([]string, 0, len(keys.keys))
 	for _, k := range keys.keys {
-		parts = append(parts, "k-"+k+"="+keys.m[k])
+		parts = append(parts, "k-"+fragmentEscape(k)+"="+fragmentEscape(keys.m[k]))
 	}
 	return "#" + strings.Join(parts, "&")
+}
+
+// fragmentEscape matches JavaScript encodeURIComponent: everything except
+// ALPHA / DIGIT / "-" / "_" / "." / "!" / "~" / "*" / "'" / "(" / ")".
+func fragmentEscape(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if isFragmentSafe(c) {
+			b.WriteByte(c)
+			continue
+		}
+		fmt.Fprintf(&b, "%%%02X", c)
+	}
+	return b.String()
+}
+
+func isFragmentSafe(c byte) bool {
+	if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+		return true
+	}
+	switch c {
+	case '-', '_', '.', '!', '~', '*', '\'', '(', ')':
+		return true
+	}
+	return false
 }
 
 // orderedKeys is an insertion-ordered string map, matching sibling SDKs whose
@@ -91,13 +115,4 @@ func (o *orderedKeys) get(k string) (string, bool) {
 
 func (o *orderedKeys) empty() bool {
 	return o == nil || len(o.keys) == 0
-}
-
-func hasWhitespace(value string) bool {
-	for _, r := range value {
-		if unicode.IsSpace(r) {
-			return true
-		}
-	}
-	return false
 }

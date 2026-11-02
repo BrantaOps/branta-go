@@ -1,50 +1,37 @@
 package branta
 
-// BrantaClientOptions is per-service configuration, overridable per-call.
-type BrantaClientOptions struct {
-	BaseURL       BrantaServerBaseURL
-	DefaultAPIKey string
-	HMACSecret    string
-	Privacy       PrivacyMode
+// BrantaApiOptions is the service configuration, overridable per call.
+// A nil per-call pointer leaves the service defaults in place.
+// Environment zero means "unset" and does not override.
+type BrantaApiOptions struct {
+	Environment BrantaEnvironment
+	APIKey      string
+	HMACSecret  string
 }
 
-// NewBrantaClientOptions returns options for baseURL with PrivacyStrict and
-// no API key or HMAC secret.
-func NewBrantaClientOptions(baseURL BrantaServerBaseURL) BrantaClientOptions {
-	return BrantaClientOptions{
-		BaseURL: baseURL,
-		Privacy: PrivacyStrict,
+// NewBrantaApiOptions returns options for environment with no API key or HMAC secret.
+func NewBrantaApiOptions(environment BrantaEnvironment) BrantaApiOptions {
+	return BrantaApiOptions{Environment: environment}
+}
+
+// GetBaseURL resolves the effective base URL.
+func (o BrantaApiOptions) GetBaseURL(overrides *BrantaApiOptions) string {
+	if overrides != nil && overrides.Environment != envUnset {
+		return overrides.Environment.URL()
 	}
+	return o.Environment.URL()
 }
 
-// GetBaseURL resolves the effective base URL: overrides wins if present, else o.
-func (o BrantaClientOptions) GetBaseURL(overrides *BrantaClientOptions) string {
-	if overrides != nil {
-		return overrides.BaseURL.URL()
+// GetAPIKey resolves the effective API key. An override wins when non-empty.
+func (o BrantaApiOptions) GetAPIKey(overrides *BrantaApiOptions) string {
+	if overrides != nil && overrides.APIKey != "" {
+		return overrides.APIKey
 	}
-	return o.BaseURL.URL()
+	return o.APIKey
 }
 
-// GetPrivacy resolves the effective privacy mode: overrides wins if present, else o.
-func (o BrantaClientOptions) GetPrivacy(overrides *BrantaClientOptions) PrivacyMode {
-	if overrides != nil {
-		return overrides.Privacy
-	}
-	return o.Privacy
-}
-
-// GetAPIKey resolves the effective API key, field-by-field: overrides' key
-// wins if non-empty, else falls back to o's key. Empty string means unset.
-func (o BrantaClientOptions) GetAPIKey(overrides *BrantaClientOptions) string {
-	if overrides != nil && overrides.DefaultAPIKey != "" {
-		return overrides.DefaultAPIKey
-	}
-	return o.DefaultAPIKey
-}
-
-// GetHMACSecret resolves the effective HMAC secret, field-by-field: overrides'
-// secret wins if non-empty, else falls back to o's secret.
-func (o BrantaClientOptions) GetHMACSecret(overrides *BrantaClientOptions) string {
+// GetHMACSecret resolves the effective HMAC secret. An override wins when non-empty.
+func (o BrantaApiOptions) GetHMACSecret(overrides *BrantaApiOptions) string {
 	if overrides != nil && overrides.HMACSecret != "" {
 		return overrides.HMACSecret
 	}
