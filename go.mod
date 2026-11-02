@@ -1,4 +1,4 @@
-module github.com/BrantaOps/branta-go
+module github.com/BrantaOps/branta-go/v4
 
 go 1.22
 
