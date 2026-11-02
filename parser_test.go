@@ -58,48 +58,48 @@ func TestPlainBolt11(t *testing.T) {
 	}
 }
 
-func TestLightningURIBolt12(t *testing.T) {
+func TestLightningURIBolt12IsUntyped(t *testing.T) {
 	p := NewQRParser("lightning:lno1qcptest")
 	dest, _ := p.Destination()
-	if dest != "lno1qcptest" || p.DestinationType() != Bolt12 {
-		t.Fatal("bolt12 uri")
+	if dest != "lno1qcptest" || p.DestinationType() != "" || !p.HasUnverifiableInstruction {
+		t.Fatalf("%+v", p)
 	}
 }
 
-func TestPlainBolt12(t *testing.T) {
+func TestPlainBolt12HasNoType(t *testing.T) {
 	p := NewQRParser("lno1qcptest")
-	if p.DestinationType() != Bolt12 {
-		t.Fatal("plain bolt12")
+	if p.DestinationType() != "" || p.HasUnverifiableInstruction {
+		t.Fatalf("%+v", p)
 	}
 }
 
-func TestLightningURILNURL(t *testing.T) {
+func TestLightningURILNURLIsUntyped(t *testing.T) {
 	p := NewQRParser("lightning:LNURL1DP68GURN8GHJ")
 	dest, _ := p.Destination()
-	if dest != "LNURL1DP68GURN8GHJ" || p.DestinationType() != LnUrl {
-		t.Fatal("lnurl uri")
+	if dest != "LNURL1DP68GURN8GHJ" || p.DestinationType() != "" || !p.HasUnverifiableInstruction {
+		t.Fatalf("%+v", p)
 	}
 }
 
-func TestPlainLNURL(t *testing.T) {
+func TestPlainLNURLHasNoType(t *testing.T) {
 	p := NewQRParser("LNURL1DP68GURN8GHJ")
-	if p.DestinationType() != LnUrl {
+	if p.DestinationType() != "" {
 		t.Fatal("plain lnurl")
 	}
 }
 
-func TestPlainEthereumStyleTetherAddress(t *testing.T) {
+func TestPlainEthereumAddressHasNoType(t *testing.T) {
 	p := NewQRParser("0x742d35Cc6634C0532925a3b844Bc454e4438f44e")
 	dest, _ := p.Destination()
-	if dest != "0x742d35Cc6634C0532925a3b844Bc454e4438f44e" || p.DestinationType() != TetherAddress {
-		t.Fatal("eth tether")
+	if dest != "0x742d35Cc6634C0532925a3b844Bc454e4438f44e" || p.DestinationType() != "" {
+		t.Fatal("eth")
 	}
 }
 
-func TestPlainTronStyleTetherAddress(t *testing.T) {
+func TestPlainTronAddressHasNoType(t *testing.T) {
 	p := NewQRParser("TJmUNSGV6b1CCVXN1KkABY49nUJGWDH3Hd")
-	if p.DestinationType() != TetherAddress {
-		t.Fatal("tron tether")
+	if p.DestinationType() != "" {
+		t.Fatal("tron")
 	}
 }
 
@@ -131,10 +131,19 @@ func TestPlainSilentPaymentTsp1(t *testing.T) {
 	}
 }
 
-func TestLnAddressDetected(t *testing.T) {
+func TestLnAddressHasNoType(t *testing.T) {
 	p := NewQRParser("user@example.com")
-	if p.DestinationType() != LnAddress {
+	if p.DestinationType() != "" {
 		t.Fatal("ln address")
+	}
+}
+
+func TestTestnetAndRegtestAddressesAreBitcoin(t *testing.T) {
+	if NewQRParser("tb1qshra2mlujc9wfscvn4d8aqpyqgxzl55853xg7s").DestinationType() != BitcoinAddress {
+		t.Fatal("tb1")
+	}
+	if NewQRParser("bcrt1qexample").DestinationType() != BitcoinAddress {
+		t.Fatal("bcrt1")
 	}
 }
 
@@ -237,7 +246,7 @@ func TestSpParamAddsSilentPayment(t *testing.T) {
 
 func TestLnoAndPayAreUnverifiable(t *testing.T) {
 	lno := NewQRParser("bitcoin:bc1qmerchant?lno=lno1qqexample")
-	if len(lno.Destinations) != 2 || lno.Destinations[1].Value != "lno1qqexample" || lno.Destinations[1].Type != Bolt12 {
+	if len(lno.Destinations) != 2 || lno.Destinations[1].Value != "lno1qqexample" || lno.Destinations[1].Type != "" {
 		t.Fatalf("%+v", lno.Destinations)
 	}
 	if !lno.HasUnverifiableInstruction {
@@ -265,7 +274,43 @@ func TestBolt12AndLnurlAreUnverifiable(t *testing.T) {
 	}
 }
 
-func TestHashZkAndBitcoinInstructionsAreVerifiable(t *testing.T) {
+func TestControlCharInSchemeTypesBitcoinAddress(t *testing.T) {
+	for _, prefix := range []string{"bitcoi\tn:", "bitcoi\nn:", "bitcoi\rn:", "\x01bitcoin:"} {
+		p := NewQRParser(prefix + "1attackeraddr?branta_id=ID1&branta_secret=SEC1")
+		dest, _ := p.Destination()
+		if !p.IsOnChainZk() || dest != "1attackeraddr" || p.DestinationType() != BitcoinAddress {
+			t.Fatalf("prefix %q: %+v", prefix, p)
+		}
+		if p.OnChainEncryptionText != "ID1" || p.OnChainEncryptionSecret != "SEC1" {
+			t.Fatalf("prefix %q: text=%q secret=%q", prefix, p.OnChainEncryptionText, p.OnChainEncryptionSecret)
+		}
+	}
+}
+
+func TestTabInsideAddressUsesTheAddressAUrlParserWouldPay(t *testing.T) {
+	p := NewQRParser("bitcoin:1attac\tkeraddr?branta_id=ID1&branta_secret=SEC1")
+	dest, _ := p.Destination()
+	if dest != "1attackeraddr" || p.DestinationType() != BitcoinAddress {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestTabInsideLightningSchemeStillTypesBolt11(t *testing.T) {
+	p := NewQRParser("lightnin\tg:lnbc100n1ptest")
+	dest, _ := p.Destination()
+	if dest != "lnbc100n1ptest" || p.DestinationType() != Bolt11 {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestDuplicateQueryKeyKeepsTheFirstValue(t *testing.T) {
+	p := NewQRParser("bitcoin:1attackeraddr?branta_id=ID1&branta_secret=SEC1&branta_secret=ATTACKER")
+	if p.OnChainEncryptionText != "ID1" || p.OnChainEncryptionSecret != "SEC1" {
+		t.Fatalf("text=%q secret=%q", p.OnChainEncryptionText, p.OnChainEncryptionSecret)
+	}
+}
+
+func TestDerivedKeyAndBitcoinInstructionsAreVerifiable(t *testing.T) {
 	for _, qr := range []string{
 		"bitcoin:bc1qmerchant",
 		"lightning:lnbc100n1ptest",

@@ -2,30 +2,30 @@ package branta
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
-// BrantaService orchestrates zero-knowledge encrypt/decrypt around the raw
-// HTTP calls in BrantaClient.
+// BrantaService orchestrates encrypt and decrypt around BrantaClient.
 //
-// The single most important behavioral rule: decryption failures (wrong key,
-// mismatched destination, DEK decrypt failure) are always swallowed internally
-// — a destination that fails to decrypt is simply left encrypted
-// (IsEncrypted = true), never surfaced as an error. The one deliberate
-// exception: when a QR code carries both a plaintext on-chain address and
-// branta_id/branta_secret params, a successful decrypt of the ZK Bitcoin-address
-// destination is compared against that plaintext address, and a mismatch
-// propagates ErrTampered.
+// Verify returns a status. A swapped address or a derived-key plaintext that
+// is not the scanned value is VerifyTampered. A 404 is VerifyUnknown. Any
+// other non-OK response, and a network failure, is VerifyIncomplete. A logo
+// URL on the wrong origin still returns LogoURLDomainMismatchError.
+//
+// AddPayment encrypts a copy. A failed post leaves the caller's Payment plaintext.
 type BrantaService struct {
-	defaultOptions  BrantaClientOptions
+	defaultOptions  BrantaApiOptions
 	client          Client
 	aes             AESEncryption
 	secretGenerator SecretGenerator
 }
 
-// NewBrantaService is the production constructor: real HTTP client, real
-// AES-GCM, real UUID generator.
-func NewBrantaService(defaultOptions BrantaClientOptions) *BrantaService {
+// NewBrantaService is the production constructor.
+func NewBrantaService(defaultOptions BrantaApiOptions) *BrantaService {
 	return &BrantaService{
 		defaultOptions:  defaultOptions,
 		client:          NewBrantaClient(defaultOptions),
@@ -34,10 +34,9 @@ func NewBrantaService(defaultOptions BrantaClientOptions) *BrantaService {
 	}
 }
 
-// NewBrantaServiceWithDeps is the test/advanced constructor: inject alternate
-// implementations (e.g. mocks).
+// NewBrantaServiceWithDeps injects a client, AES, and secret generator.
 func NewBrantaServiceWithDeps(
-	defaultOptions BrantaClientOptions,
+	defaultOptions BrantaApiOptions,
 	client Client,
 	aes AESEncryption,
 	secretGenerator SecretGenerator,
@@ -62,7 +61,7 @@ func addressesMatch(a, b string) bool {
 }
 
 // uniformOnChainAddress returns the single on-chain address every on-chain
-// instruction in the QR agrees on ("" if none), or ErrTampered if they conflict.
+// instruction agrees on. Conflicting addresses are errTampered.
 func uniformOnChainAddress(parser QRParser) (string, error) {
 	first := ""
 	for _, d := range parser.Destinations {
@@ -74,182 +73,180 @@ func uniformOnChainAddress(parser QRParser) (string, error) {
 			continue
 		}
 		if !addressesMatch(first, d.Value) {
-			return "", ErrTampered
+			return "", errTampered
 		}
 	}
 	return first, nil
 }
 
-// GetPayments looks up a single destination value.
-func (s *BrantaService) GetPayments(ctx context.Context, destinationValue, destinationEncryptionKey string, options *BrantaClientOptions) (PaymentsResult, error) {
-	hashZkType := HashZkType(destinationValue)
-	privacy := s.defaultOptions.GetPrivacy(options)
-
-	// Supplying a key at all signals ZK intent and bypasses this check, even
-	// for a non-hash-ZK value (e.g. a Bitcoin address looked up with its
-	// secret in Strict mode).
-	if hashZkType == "" && destinationEncryptionKey == "" && privacy == PrivacyStrict {
-		return PaymentsResult{}, ErrPrivacyModeViolation
+func toVerifyResult(payments []Payment, verifyURL string) VerifyResult {
+	if len(payments) == 0 {
+		return VerifyResult{Status: VerifyUnknown, VerifyURL: verifyURL}
 	}
-
-	normalized := destinationValue
-	if hashZkType != "" {
-		normalized = strings.ToLower(destinationValue)
-	}
-
-	lookupValue := destinationValue
-	if hashZkType != "" {
-		enc, err := s.aes.Encrypt(normalized, ToNormalizedHash(normalized), true)
-		if err != nil {
-			return PaymentsResult{}, err
-		}
-		lookupValue = enc
-	}
-
-	payments, err := s.client.GetPayments(ctx, lookupValue, options)
-	if err != nil {
-		return PaymentsResult{}, err
-	}
-
-	// Loose mode only: fall back to a plain-value lookup if the encrypted
-	// lookup missed. Strict mode never falls back to plain.
-	if len(payments) == 0 && hashZkType != "" && privacy != PrivacyStrict {
-		lookupValue = normalized
-		payments, err = s.client.GetPayments(ctx, lookupValue, options)
-		if err != nil {
-			return PaymentsResult{}, err
-		}
-	}
-
-	keys := newOrderedKeys()
-	for i := range payments {
-		if _, err := s.decryptDestinations(ctx, &payments[i], normalized, destinationEncryptionKey, hashZkType, keys, ""); err != nil {
-			return PaymentsResult{}, err
-		}
-	}
-
-	return PaymentsResult{
-		Payments:  payments,
-		VerifyURL: s.buildVerifyURL(options, lookupValue, keys),
-	}, nil
+	return VerifyResult{Status: VerifyMatch, Payments: payments, VerifyURL: verifyURL}
 }
 
-// GetPaymentsByQRCode parses raw QR text and looks up matching payments.
-func (s *BrantaService) GetPaymentsByQRCode(ctx context.Context, qrText string, options *BrantaClientOptions) (PaymentsResult, error) {
-	parser := NewQRParser(qrText)
+// Verify parses a scanned QR or pasted text and looks it up.
+func (s *BrantaService) Verify(ctx context.Context, input string, options *BrantaApiOptions) (VerifyResult, error) {
+	parser := NewQRParser(input)
+	lookup := parser.OnChainEncryptionText
+	if lookup == "" {
+		lookup, _ = parser.Destination()
+	}
 
+	result, err := s.verifyParsed(ctx, parser, options)
+	if err == nil {
+		return result, nil
+	}
+	if errors.Is(err, errTampered) {
+		return VerifyResult{Status: VerifyTampered, VerifyURL: s.buildVerifyURL(options, lookup, nil)}, nil
+	}
+	if errors.Is(err, errIncomplete) {
+		return VerifyResult{Status: VerifyIncomplete, VerifyURL: s.buildVerifyURL(options, lookup, nil)}, nil
+	}
+	return VerifyResult{}, err
+}
+
+func (s *BrantaService) verifyParsed(ctx context.Context, parser QRParser, options *BrantaApiOptions) (VerifyResult, error) {
 	expectedOnChainAddress, err := uniformOnChainAddress(parser)
 	if err != nil {
-		return PaymentsResult{}, err
+		return VerifyResult{}, err
+	}
+
+	lookup := parser.OnChainEncryptionText
+	if lookup == "" {
+		lookup, _ = parser.Destination()
 	}
 
 	if parser.HasUnverifiableInstruction {
-		lookup := parser.OnChainEncryptionText
-		if lookup == "" {
-			lookup, _ = parser.Destination()
-		}
-		return PaymentsResult{
-			Payments:  nil,
-			VerifyURL: s.buildVerifyURL(options, lookup, newOrderedKeys()),
-		}, nil
+		return VerifyResult{Status: VerifyUnknown, VerifyURL: s.buildVerifyURL(options, lookup, nil)}, nil
 	}
 
 	if parser.IsOnChainZk() {
 		var additionalValues []string
 		for _, d := range parser.Destinations {
-			if HashZkType(d.Value) != "" {
+			if DerivedKeyType(d.Value) != "" {
 				additionalValues = append(additionalValues, d.Value)
 			}
 		}
-		return s.getPaymentsForZk(ctx, parser.OnChainEncryptionText, parser.OnChainEncryptionSecret, additionalValues, expectedOnChainAddress, options)
+		if expectedOnChainAddress == "" && len(additionalValues) == 0 {
+			return VerifyResult{Status: VerifyUnknown, VerifyURL: s.buildVerifyURL(options, lookup, nil)}, nil
+		}
+		payments, verifyURL, err := s.lookupByBrantaID(ctx, parser.OnChainEncryptionText, parser.OnChainEncryptionSecret, additionalValues, expectedOnChainAddress, options)
+		if err != nil {
+			return VerifyResult{}, err
+		}
+		return toVerifyResult(payments, verifyURL), nil
 	}
 
-	destination, ok := parser.Destination()
-	if !ok {
-		return PaymentsResult{
-			Payments:  nil,
-			VerifyURL: s.buildVerifyURL(options, "", newOrderedKeys()),
-		}, nil
+	destination, _ := parser.Destination()
+	if DerivedKeyType(destination) == "" {
+		return VerifyResult{Status: VerifyUnknown, VerifyURL: s.buildVerifyURL(options, destination, nil)}, nil
 	}
 
-	if s.defaultOptions.GetPrivacy(options) == PrivacyStrict && HashZkType(destination) == "" {
-		return PaymentsResult{
-			Payments:  nil,
-			VerifyURL: s.buildVerifyURL(options, destination, newOrderedKeys()),
-		}, nil
+	payments, verifyURL, err := s.lookupByDerivedKey(ctx, destination, options)
+	if err != nil {
+		return VerifyResult{}, err
 	}
-
-	return s.GetPayments(ctx, destination, "", options)
+	return toVerifyResult(payments, verifyURL), nil
 }
 
-func (s *BrantaService) getPaymentsForZk(ctx context.Context, lookupValue, encryptionKey string, additionalHashValues []string, expectedOnChainAddress string, options *BrantaClientOptions) (PaymentsResult, error) {
+func (s *BrantaService) lookupByBrantaID(
+	ctx context.Context,
+	lookupValue, encryptionKey string,
+	additionalHashValues []string,
+	expectedOnChainAddress string,
+	options *BrantaApiOptions,
+) ([]Payment, string, error) {
 	payments, err := s.client.GetPayments(ctx, lookupValue, options)
 	if err != nil {
-		return PaymentsResult{}, err
+		return nil, "", err
 	}
 
 	keys := newOrderedKeys()
 	var bound []Payment
 	for i := range payments {
-		onChainBound, err := s.decryptDestinations(ctx, &payments[i], lookupValue, encryptionKey, "", keys, expectedOnChainAddress)
+		onChainBound, err := s.decryptDestinations(&payments[i], encryptionKey, keys, expectedOnChainAddress)
 		if err != nil {
-			return PaymentsResult{}, err
+			return nil, "", err
 		}
 		hashesBound := true
 		for _, value := range additionalHashValues {
-			if !s.decryptHashZkDestinations(ctx, &payments[i], value, keys) {
+			ok, err := s.decryptDerivedKeyDestinations(&payments[i], value, keys)
+			if err != nil {
+				return nil, "", err
+			}
+			if !ok {
 				hashesBound = false
 			}
 		}
-		if onChainBound && hashesBound {
+		hasPayable := expectedOnChainAddress != "" || len(additionalHashValues) > 0
+		if hasPayable && onChainBound && hashesBound {
 			bound = append(bound, payments[i])
 		}
 	}
-
-	return PaymentsResult{
-		Payments:  bound,
-		VerifyURL: s.buildVerifyURL(options, lookupValue, keys),
-	}, nil
+	return bound, s.buildVerifyURL(options, lookupValue, keys), nil
 }
 
-// AddPayment encrypts ZK destinations and posts the payment.
-func (s *BrantaService) AddPayment(ctx context.Context, payment Payment, options *BrantaClientOptions) (AddPaymentResult, error) {
-	if s.defaultOptions.GetPrivacy(options) == PrivacyStrict {
-		for _, d := range payment.Destinations {
-			if !d.IsZk {
-				return AddPaymentResult{}, ErrNonZkDestinationInStrictMode
-			}
-		}
+func (s *BrantaService) lookupByDerivedKey(ctx context.Context, destinationValue string, options *BrantaApiOptions) ([]Payment, string, error) {
+	normalized := strings.ToLower(destinationValue)
+	lookupValue, err := s.aes.Encrypt(normalized, ToNormalizedHash(normalized), true)
+	if err != nil {
+		return nil, "", err
 	}
 
-	var dek string
-	hasZk := false
-	for _, d := range payment.Destinations {
-		if d.IsZk {
-			hasZk = true
-			break
+	payments, err := s.client.GetPayments(ctx, lookupValue, options)
+	if err != nil {
+		return nil, "", err
+	}
+
+	keys := newOrderedKeys()
+	var bound []Payment
+	for i := range payments {
+		ok, err := s.decryptDerivedKeyDestinations(&payments[i], normalized, keys)
+		if err != nil {
+			return nil, "", err
+		}
+		if ok {
+			bound = append(bound, payments[i])
 		}
 	}
-	if payment.Metadata != "" && hasZk {
-		generated := s.secretGenerator.Generate()
-		enc, err := s.aes.Encrypt(payment.Metadata, generated, false)
+	return bound, s.buildVerifyURL(options, lookupValue, keys), nil
+}
+
+// AddPayment encrypts a copy of payment and posts that copy.
+func (s *BrantaService) AddPayment(ctx context.Context, payment Payment, options *BrantaApiOptions) (AddPaymentResult, error) {
+	submitted := copyPayment(payment)
+	foldDescriptionIntoMetadata(&submitted)
+
+	var dek string
+	if submitted.Metadata != "" && len(submitted.Destinations) > 0 {
+		dek = s.secretGenerator.Generate()
+		enc, err := s.aes.Encrypt(submitted.Metadata, dek, false)
 		if err != nil {
 			return AddPaymentResult{}, err
 		}
-		payment.Metadata = enc
-		dek = generated
+		submitted.Metadata = enc
 	}
 
 	secret := s.secretGenerator.Generate()
 	encryptedToKey := newOrderedKeys()
 
-	for i := range payment.Destinations {
-		destination := &payment.Destinations[i]
-		if !destination.IsZk {
-			continue
+	for i := range submitted.Destinations {
+		destination := &submitted.Destinations[i]
+		if destination.ID == "" {
+			destination.ID = uuid.New().String()
 		}
 
-		if destination.Type == BitcoinAddress {
+		destType := destination.Type
+		if destType == "" {
+			destType = detectPlainTextType(destination.Value)
+			if destType != "" {
+				destination.Type = destType
+			}
+		}
+
+		if destType == BitcoinAddress {
 			ciphertext, err := s.aes.Encrypt(destination.Value, secret, s.secretGenerator.DeterministicNonce())
 			if err != nil {
 				return AddPaymentResult{}, err
@@ -266,8 +263,8 @@ func (s *BrantaService) AddPayment(ctx context.Context, payment Payment, options
 			continue
 		}
 
-		if HashZkType(destination.Value) == "" {
-			return AddPaymentResult{}, &UnsupportedZkDestinationTypeError{Type: destination.Type}
+		if DerivedKeyType(destination.Value) == "" {
+			return AddPaymentResult{}, &UnsupportedDestinationTypeError{Type: destination.Type}
 		}
 		normalized := strings.ToLower(destination.Value)
 		key := ToNormalizedHash(normalized)
@@ -287,11 +284,11 @@ func (s *BrantaService) AddPayment(ctx context.Context, payment Payment, options
 	}
 
 	primaryValue := ""
-	if len(payment.Destinations) > 0 {
-		primaryValue = payment.Destinations[0].Value
+	if len(submitted.Destinations) > 0 {
+		primaryValue = submitted.Destinations[0].Value
 	}
 
-	responsePayment, err := s.client.PostPayment(ctx, payment, options)
+	responsePayment, err := s.client.PostPayment(ctx, submitted, options)
 	if err != nil {
 		return AddPaymentResult{}, err
 	}
@@ -301,11 +298,11 @@ func (s *BrantaService) AddPayment(ctx context.Context, payment Payment, options
 
 	keys := newOrderedKeys()
 	for _, destination := range responsePayment.Destinations {
-		if destination.ZkID == "" {
+		if destination.ID == "" {
 			continue
 		}
 		if key, ok := encryptedToKey.get(destination.Value); ok {
-			keys.set(destination.ZkID, key)
+			keys.set(destination.ID, key)
 		}
 	}
 
@@ -317,106 +314,77 @@ func (s *BrantaService) AddPayment(ctx context.Context, payment Payment, options
 }
 
 // IsAPIKeyValid proxies to the HTTP client health-check.
-func (s *BrantaService) IsAPIKeyValid(ctx context.Context, options *BrantaClientOptions) (bool, error) {
+func (s *BrantaService) IsAPIKeyValid(ctx context.Context, options *BrantaApiOptions) (bool, error) {
 	return s.client.IsAPIKeyValid(ctx, options)
 }
 
 func (s *BrantaService) decryptDestinations(
-	ctx context.Context,
 	payment *Payment,
-	destinationValue, encryptionKey string,
-	hashZkType DestinationType,
+	encryptionKey string,
 	keys *orderedKeys,
 	expectedOnChainAddress string,
 ) (bool, error) {
-	_ = ctx
 	onChainBound := expectedOnChainAddress == ""
 	for i := range payment.Destinations {
-		isZk := payment.Destinations[i].IsZk
-		payment.Destinations[i].IsEncrypted = isZk
-		if !isZk {
+		if !payment.Destinations[i].IsEncrypted || payment.Destinations[i].Type != BitcoinAddress {
 			continue
 		}
-
-		destType := payment.Destinations[i].Type
-
-		if destType == BitcoinAddress {
-			if encryptionKey == "" {
-				continue
-			}
-			value := payment.Destinations[i].Value
-			plaintext, err := s.aes.Decrypt(value, encryptionKey)
-			if err != nil {
-				continue
-			}
-			if expectedOnChainAddress != "" && !addressesMatch(plaintext, expectedOnChainAddress) {
-				return false, ErrTampered
-			}
-			if expectedOnChainAddress != "" {
-				onChainBound = true
-			}
-			payment.Destinations[i].Value = plaintext
-			payment.Destinations[i].IsEncrypted = false
-			if payment.Destinations[i].ZkID != "" {
-				if _, exists := keys.get(payment.Destinations[i].ZkID); !exists {
-					keys.set(payment.Destinations[i].ZkID, encryptionKey)
-				}
-			}
-			s.tryDecryptMetadata(payment, i, encryptionKey)
+		if encryptionKey == "" {
 			continue
 		}
-
-		if hashZkType != "" && destType == hashZkType {
-			key := ToNormalizedHash(destinationValue)
-			value := payment.Destinations[i].Value
-			plaintext, err := s.aes.Decrypt(value, key)
-			if err != nil {
-				continue
-			}
-			payment.Destinations[i].Value = plaintext
-			payment.Destinations[i].IsEncrypted = false
-			if payment.Destinations[i].ZkID != "" {
-				if _, exists := keys.get(payment.Destinations[i].ZkID); !exists {
-					keys.set(payment.Destinations[i].ZkID, key)
-				}
-			}
-			s.tryDecryptMetadata(payment, i, key)
+		plaintext, err := s.aes.Decrypt(payment.Destinations[i].Value, encryptionKey)
+		if err != nil {
+			continue
 		}
+		if expectedOnChainAddress != "" && !addressesMatch(plaintext, expectedOnChainAddress) {
+			return false, errTampered
+		}
+		if expectedOnChainAddress != "" {
+			onChainBound = true
+		}
+		payment.Destinations[i].Value = plaintext
+		payment.Destinations[i].IsEncrypted = false
+		if payment.Destinations[i].ID != "" {
+			if _, exists := keys.get(payment.Destinations[i].ID); !exists {
+				keys.set(payment.Destinations[i].ID, encryptionKey)
+			}
+		}
+		s.tryDecryptMetadata(payment, i, encryptionKey)
 	}
 	return onChainBound, nil
 }
 
-// decryptHashZkDestinations reports whether at least one destination of the
-// value's hash-ZK type decrypted with the key derived from plainValue.
-func (s *BrantaService) decryptHashZkDestinations(ctx context.Context, payment *Payment, plainValue string, keys *orderedKeys) bool {
-	_ = ctx
-	hashZkType := HashZkType(plainValue)
-	if hashZkType == "" {
-		return false
+// decryptDerivedKeyDestinations reports whether a destination of plainValue's
+// type decrypted to that value. A different plaintext is errTampered.
+func (s *BrantaService) decryptDerivedKeyDestinations(payment *Payment, plainValue string, keys *orderedKeys) (bool, error) {
+	derived := DerivedKeyType(plainValue)
+	if derived == "" {
+		return false, nil
 	}
 	key := ToNormalizedHash(plainValue)
 	bound := false
-
 	for i := range payment.Destinations {
-		if !payment.Destinations[i].IsZk || payment.Destinations[i].Type != hashZkType {
+		if !payment.Destinations[i].IsEncrypted || payment.Destinations[i].Type != derived {
 			continue
 		}
-		value := payment.Destinations[i].Value
-		plaintext, err := s.aes.Decrypt(value, key)
+		plaintext, err := s.aes.Decrypt(payment.Destinations[i].Value, key)
 		if err != nil {
 			continue
 		}
+		if !strings.EqualFold(plaintext, plainValue) {
+			return false, errTampered
+		}
 		payment.Destinations[i].Value = plaintext
 		payment.Destinations[i].IsEncrypted = false
-		if payment.Destinations[i].ZkID != "" {
-			if _, exists := keys.get(payment.Destinations[i].ZkID); !exists {
-				keys.set(payment.Destinations[i].ZkID, key)
+		if payment.Destinations[i].ID != "" {
+			if _, exists := keys.get(payment.Destinations[i].ID); !exists {
+				keys.set(payment.Destinations[i].ID, key)
 			}
 		}
 		s.tryDecryptMetadata(payment, i, key)
 		bound = true
 	}
-	return bound
+	return bound, nil
 }
 
 func (s *BrantaService) tryDecryptMetadata(payment *Payment, index int, keyUsed string) {
@@ -437,14 +405,63 @@ func (s *BrantaService) tryDecryptMetadata(payment *Payment, index int, keyUsed 
 	}
 	payment.Metadata = plaintext
 	payment.IsMetadataDecrypted = true
+	liftDescriptionFromMetadata(payment)
 }
 
-func (s *BrantaService) buildVerifyURL(options *BrantaClientOptions, paymentLookup string, keys *orderedKeys) string {
+func (s *BrantaService) buildVerifyURL(options *BrantaApiOptions, paymentLookup string, keys *orderedKeys) string {
 	baseURL := s.defaultOptions.GetBaseURL(options)
-	encoded := pathEscape(paymentLookup)
-	u := strings.TrimRight(baseURL, "/") + "/v2/verify/" + encoded
+	u := strings.TrimRight(baseURL, "/") + "/v2/verify/" + pathEscape(paymentLookup)
 	if !keys.empty() {
 		u += ToURLFragment(keys)
 	}
 	return u
+}
+
+func copyPayment(p Payment) Payment {
+	out := p
+	if p.Destinations != nil {
+		out.Destinations = make([]Destination, len(p.Destinations))
+		copy(out.Destinations, p.Destinations)
+	}
+	if p.ParentPlatform != nil {
+		pp := *p.ParentPlatform
+		out.ParentPlatform = &pp
+	}
+	if p.ChildPlatform != nil {
+		cp := *p.ChildPlatform
+		out.ChildPlatform = &cp
+	}
+	return out
+}
+
+func foldDescriptionIntoMetadata(payment *Payment) {
+	if payment.Description == "" {
+		return
+	}
+	metadataMap := map[string]string{}
+	if payment.Metadata != "" {
+		_ = json.Unmarshal([]byte(payment.Metadata), &metadataMap)
+	}
+	if _, ok := metadataMap["description"]; !ok {
+		metadataMap["description"] = payment.Description
+	}
+	encoded, err := json.Marshal(metadataMap)
+	if err != nil {
+		return
+	}
+	payment.Metadata = string(encoded)
+	payment.Description = ""
+}
+
+func liftDescriptionFromMetadata(payment *Payment) {
+	if payment.Metadata == "" {
+		return
+	}
+	var metadataMap map[string]any
+	if err := json.Unmarshal([]byte(payment.Metadata), &metadataMap); err != nil {
+		return
+	}
+	if description, ok := metadataMap["description"].(string); ok {
+		payment.Description = description
+	}
 }

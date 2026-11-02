@@ -18,21 +18,21 @@ import (
 // Client is the raw HTTP layer. Consumers should never call this directly —
 // go through BrantaService.
 type Client interface {
-	GetPayments(ctx context.Context, destinationValue string, options *BrantaClientOptions) ([]Payment, error)
-	PostPayment(ctx context.Context, payment Payment, options *BrantaClientOptions) (*Payment, error)
-	IsAPIKeyValid(ctx context.Context, options *BrantaClientOptions) (bool, error)
+	GetPayments(ctx context.Context, destinationValue string, options *BrantaApiOptions) ([]Payment, error)
+	PostPayment(ctx context.Context, payment Payment, options *BrantaApiOptions) (*Payment, error)
+	IsAPIKeyValid(ctx context.Context, options *BrantaApiOptions) (bool, error)
 }
 
 // BrantaClient is the production HTTP client.
 type BrantaClient struct {
 	http                    *http.Client
-	defaultOptions          BrantaClientOptions
+	defaultOptions          BrantaApiOptions
 	baseURLOverride         string // test-only: point at httptest.Server
 	integrationMetricsToken string
 }
 
 // NewBrantaClient constructs a client with the given default options.
-func NewBrantaClient(defaultOptions BrantaClientOptions) *BrantaClient {
+func NewBrantaClient(defaultOptions BrantaApiOptions) *BrantaClient {
 	return &BrantaClient{
 		http:           &http.Client{},
 		defaultOptions: defaultOptions,
@@ -46,14 +46,14 @@ func (c *BrantaClient) SetIntegrationMetricsToken(token string) {
 	c.integrationMetricsToken = token
 }
 
-func (c *BrantaClient) baseURL(options *BrantaClientOptions) string {
+func (c *BrantaClient) baseURL(options *BrantaApiOptions) string {
 	if c.baseURLOverride != "" {
 		return strings.TrimRight(c.baseURLOverride, "/")
 	}
 	return strings.TrimRight(c.defaultOptions.GetBaseURL(options), "/")
 }
 
-func (c *BrantaClient) resolveAPIKey(options *BrantaClientOptions) (string, error) {
+func (c *BrantaClient) resolveAPIKey(options *BrantaApiOptions) (string, error) {
 	key := c.defaultOptions.GetAPIKey(options)
 	if key == "" {
 		return "", ErrUnauthorized
@@ -61,7 +61,7 @@ func (c *BrantaClient) resolveAPIKey(options *BrantaClientOptions) (string, erro
 	return key, nil
 }
 
-func (c *BrantaClient) hmacHeaders(baseURL, jsonBody string, options *BrantaClientOptions) (signature, timestamp string, ok bool) {
+func (c *BrantaClient) hmacHeaders(baseURL, jsonBody string, options *BrantaApiOptions) (signature, timestamp string, ok bool) {
 	hmacSecret := c.defaultOptions.GetHMACSecret(options)
 	if hmacSecret == "" {
 		return "", "", false
@@ -123,35 +123,42 @@ func originOf(u *url.URL) string {
 	return strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host)
 }
 
-// GetPayments looks up payments by destination value. Lookup failures
-// (transport, non-2xx, empty body, malformed JSON) degrade to an empty slice
-// rather than an error. Logo-URL domain mismatches still error.
-func (c *BrantaClient) GetPayments(ctx context.Context, destinationValue string, options *BrantaClientOptions) ([]Payment, error) {
+// GetPayments looks up payments by destination value.
+// A 404 or an empty body is an empty slice. Any other non-2xx status, and a
+// transport failure, is errIncomplete. Malformed JSON and a logo on the wrong
+// origin return an error Verify does not map to a status.
+func (c *BrantaClient) GetPayments(ctx context.Context, destinationValue string, options *BrantaApiOptions) ([]Payment, error) {
 	baseURL := c.baseURL(options)
 	encoded := pathEscape(destinationValue)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/v2/payments/"+encoded, nil)
 	if err != nil {
-		return []Payment{}, nil
+		return nil, errIncomplete
 	}
 	if c.integrationMetricsToken != "" {
 		req.Header.Set("X-Branta-Integration-Token", c.integrationMetricsToken)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return []Payment{}, nil
+		return nil, errIncomplete
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if resp.StatusCode == http.StatusNotFound {
 		return []Payment{}, nil
 	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, errIncomplete
+	}
 	body, err := io.ReadAll(resp.Body)
-	if err != nil || len(body) == 0 {
+	if err != nil {
+		return nil, errIncomplete
+	}
+	if len(body) == 0 {
 		return []Payment{}, nil
 	}
 	var payments []Payment
 	if err := json.Unmarshal(body, &payments); err != nil {
-		return []Payment{}, nil
+		return nil, err
 	}
 	if err := c.verifyLogoURLs(baseURL, payments); err != nil {
 		return nil, err
@@ -160,7 +167,7 @@ func (c *BrantaClient) GetPayments(ctx context.Context, destinationValue string,
 }
 
 // PostPayment registers a payment. Unlike GetPayments, failures propagate.
-func (c *BrantaClient) PostPayment(ctx context.Context, payment Payment, options *BrantaClientOptions) (*Payment, error) {
+func (c *BrantaClient) PostPayment(ctx context.Context, payment Payment, options *BrantaApiOptions) (*Payment, error) {
 	baseURL := c.baseURL(options)
 	apiKey, err := c.resolveAPIKey(options)
 	if err != nil {
@@ -206,7 +213,7 @@ func (c *BrantaClient) PostPayment(ctx context.Context, payment Payment, options
 }
 
 // IsAPIKeyValid hits the API-key health-check endpoint.
-func (c *BrantaClient) IsAPIKeyValid(ctx context.Context, options *BrantaClientOptions) (bool, error) {
+func (c *BrantaClient) IsAPIKeyValid(ctx context.Context, options *BrantaApiOptions) (bool, error) {
 	baseURL := c.baseURL(options)
 	apiKey, err := c.resolveAPIKey(options)
 	if err != nil {

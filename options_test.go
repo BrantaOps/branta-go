@@ -3,15 +3,13 @@ package branta
 import "testing"
 
 func TestOverrideWinsOverDefaultFieldByField(t *testing.T) {
-	defaultOpts := BrantaClientOptions{
-		BaseURL:       Staging,
-		DefaultAPIKey: "default-key",
-		HMACSecret:    "default-hmac",
-		Privacy:       PrivacyStrict,
+	defaultOpts := BrantaApiOptions{
+		Environment: Staging,
+		APIKey:      "default-key",
+		HMACSecret:  "default-hmac",
 	}
-	over := NewBrantaClientOptions(Production)
-	over.DefaultAPIKey = "child-key"
-	// HMACSecret left empty -> should fall back to default's hmac secret.
+	over := NewBrantaApiOptions(Production)
+	over.APIKey = "child-key"
 
 	if got := defaultOpts.GetBaseURL(&over); got != "https://guardrail.branta.pro" {
 		t.Fatalf("base url: %s", got)
@@ -24,13 +22,18 @@ func TestOverrideWinsOverDefaultFieldByField(t *testing.T) {
 	}
 }
 
-func TestNilOverridesFallBackEntirelyToDefault(t *testing.T) {
-	defaultOpts := NewBrantaClientOptions(Staging)
-	if got := defaultOpts.GetBaseURL(nil); got != "https://staging.guardrail.branta.pro" {
+func TestZeroEnvironmentDoesNotOverride(t *testing.T) {
+	defaultOpts := NewBrantaApiOptions(Production)
+	over := &BrantaApiOptions{APIKey: "child-key"}
+	if got := defaultOpts.GetBaseURL(over); got != "https://guardrail.branta.pro" {
 		t.Fatalf("base url: %s", got)
 	}
-	if defaultOpts.GetPrivacy(nil) != PrivacyStrict {
-		t.Fatal("privacy")
+}
+
+func TestNilOverridesFallBackEntirelyToDefault(t *testing.T) {
+	defaultOpts := NewBrantaApiOptions(Staging)
+	if got := defaultOpts.GetBaseURL(nil); got != "https://staging.guardrail.branta.pro" {
+		t.Fatalf("base url: %s", got)
 	}
 	if defaultOpts.GetAPIKey(nil) != "" {
 		t.Fatal("api key")

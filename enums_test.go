@@ -14,9 +14,9 @@ func TestBaseURLsMatchReference(t *testing.T) {
 	}
 }
 
-func TestPrivacyModeDefaultsToStrict(t *testing.T) {
-	if NewBrantaClientOptions(Staging).Privacy != PrivacyStrict {
-		t.Fatal("expected Strict default")
+func TestUnsetEnvironmentUsesStaging(t *testing.T) {
+	if BrantaEnvironment(0).URL() != "https://staging.guardrail.branta.pro" {
+		t.Fatal("zero value")
 	}
 }
 
@@ -27,10 +27,6 @@ func TestDestinationTypeWireFormatIsExact(t *testing.T) {
 	}{
 		{BitcoinAddress, "bitcoin_address"},
 		{Bolt11, "bolt11"},
-		{Bolt12, "bolt12"},
-		{LnUrl, "ln_url"},
-		{TetherAddress, "tether_address"},
-		{LnAddress, "ln_address"},
 		{ArkAddress, "ark_address"},
 		{SilentPayment, "silent_payment"},
 	}

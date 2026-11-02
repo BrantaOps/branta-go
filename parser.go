@@ -20,14 +20,15 @@ type QRParser struct {
 	OnChainEncryptionText   string
 	OnChainEncryptionSecret string
 	// HasUnverifiableInstruction is true when the QR carries a payable
-	// instruction this SDK cannot bind to a decrypted destination (bolt12,
-	// lno=, pay=, LNURL, or any other non-hash-ZK, non-bitcoin value).
+	// instruction this SDK cannot bind to a decrypted destination. That is any
+	// value other than a bitcoin address or a derived key (bolt11, Ark, or
+	// silent payment), including bolt12, lno, and pay.
 	HasUnverifiableInstruction bool
 }
 
 // NewQRParser parses qrText.
 func NewQRParser(qrText string) QRParser {
-	text := strings.TrimSpace(qrText)
+	text := normalizeQRText(qrText)
 	parser := QRParser{}
 
 	scheme, ok := uriScheme(text)
@@ -59,7 +60,7 @@ func NewQRParser(qrText string) QRParser {
 		Value: destValue,
 		Type:  destType,
 	})
-	if destValue != "" && destType != BitcoinAddress && HashZkType(destValue) == "" {
+	if destValue != "" && destType != BitcoinAddress && DerivedKeyType(destValue) == "" {
 		parser.HasUnverifiableInstruction = true
 	}
 
@@ -73,18 +74,11 @@ func NewQRParser(qrText string) QRParser {
 			return
 		}
 		destType := detectPlainTextType(value)
-		switch {
-		case onChain:
+		if onChain {
 			destType = BitcoinAddress
-		case key == "lno":
-			if value == "" {
-				destType = ""
-			} else if destType == "" {
-				destType = Bolt12
-			}
 		}
 		parser.Destinations = append(parser.Destinations, QRDestination{Value: value, Type: destType})
-		if value != "" && !onChain && HashZkType(value) == "" {
+		if value != "" && !onChain && DerivedKeyType(value) == "" {
 			parser.HasUnverifiableInstruction = true
 		}
 	}
@@ -186,20 +180,37 @@ func parseQuery(query string) map[string]string {
 		if err != nil {
 			decodedValue = value
 		}
-		m[strings.ToLower(decodedKey)] = decodedValue
+		lowered := strings.ToLower(decodedKey)
+		if _, exists := m[lowered]; exists {
+			continue
+		}
+		m[lowered] = decodedValue
 	}
 	return m
+}
+
+// normalizeQRText matches URL parsers: drop leading and trailing C0 controls
+// and spaces, then drop tab, line feed, and carriage return anywhere. A control
+// byte inside "bitcoin:" has to leave a typed address, or the swap check never runs.
+func normalizeQRText(qrText string) string {
+	value := strings.TrimSpace(qrText)
+	start := 0
+	end := len(value)
+	for start < end && value[start] <= 0x20 {
+		start++
+	}
+	for end > start && value[end-1] <= 0x20 {
+		end--
+	}
+	value = value[start:end]
+	value = strings.ReplaceAll(value, "\t", "")
+	value = strings.ReplaceAll(value, "\n", "")
+	return strings.ReplaceAll(value, "\r", "")
 }
 
 func lightningSchemeType(dest string) DestinationType {
 	if IsBolt11(dest) {
 		return Bolt11
-	}
-	if len(dest) >= 3 && strings.EqualFold(dest[:3], "lno") {
-		return Bolt12
-	}
-	if len(dest) >= 5 && strings.EqualFold(dest[:5], "lnurl") {
-		return LnUrl
 	}
 	return ""
 }
@@ -208,77 +219,18 @@ func detectPlainTextType(value string) DestinationType {
 	if IsBolt11(value) {
 		return Bolt11
 	}
-	if len(value) >= 3 && strings.EqualFold(value[:3], "lno") {
-		return Bolt12
-	}
-	if len(value) >= 5 && strings.EqualFold(value[:5], "lnurl") {
-		return LnUrl
-	}
 	if IsArk(value) {
 		return ArkAddress
 	}
 	if IsSilentPayment(value) {
 		return SilentPayment
 	}
-	if isEthereumAddress(value) {
-		return TetherAddress
-	}
-	if isTronAddress(value) {
-		return TetherAddress
-	}
-	if isLnAddress(value) {
-		return LnAddress
-	}
+	lower := strings.ToLower(value)
 	if strings.HasPrefix(value, "1") || strings.HasPrefix(value, "3") ||
-		(len(value) >= 3 && strings.EqualFold(value[:3], "bc1")) {
+		strings.HasPrefix(lower, "bc1") || strings.HasPrefix(lower, "tb1") || strings.HasPrefix(lower, "bcrt1") {
 		return BitcoinAddress
 	}
 	return ""
-}
-
-func isEthereumAddress(value string) bool {
-	if len(value) != 42 || !strings.EqualFold(value[:2], "0x") {
-		return false
-	}
-	for i := 2; i < len(value); i++ {
-		c := value[i]
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
-			return false
-		}
-	}
-	return true
-}
-
-func isTronAddress(value string) bool {
-	return len(value) == 34 && strings.HasPrefix(value, "T")
-}
-
-// isLnAddress matches `^[^@\s]+@[^@\s]+\.[^@\s]+$` — exactly one `@`,
-// non-empty local/domain parts, domain contains a `.` with non-empty text on
-// both sides.
-func isLnAddress(value string) bool {
-	if hasWhitespace(value) {
-		return false
-	}
-	at := -1
-	for i, r := range value {
-		if r == '@' {
-			if at != -1 {
-				return false
-			}
-			at = i
-		}
-	}
-	if at <= 0 || at == len(value)-1 {
-		return false
-	}
-	domain := value[at+1:]
-	for i, r := range domain {
-		if r == '.' && i > 0 && i < len(domain)-1 {
-			return true
-		}
-	}
-	return false
 }
 
 func isASCIIAlpha(c byte) bool {

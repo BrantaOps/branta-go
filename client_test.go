@@ -11,7 +11,7 @@ import (
 )
 
 func clientFor(server *httptest.Server) *BrantaClient {
-	c := NewBrantaClient(NewBrantaClientOptions(Localhost))
+	c := NewBrantaClient(NewBrantaApiOptions(Localhost))
 	c.baseURLOverride = server.URL
 	return c
 }
@@ -73,9 +73,20 @@ func TestGetPaymentsPercentEncodesPathSegmentIncludingPlusSlashEquals(t *testing
 	}
 }
 
-func TestGetPaymentsReturnsEmptyOnNon2xx(t *testing.T) {
+func TestGetPaymentsNon2xxExcept404IsIncomplete(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
+	}))
+	defer server.Close()
+	_, err := clientFor(server).GetPayments(context.Background(), "value", nil)
+	if !errors.Is(err, errIncomplete) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestGetPayments404ReturnsEmpty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer server.Close()
 	result, err := clientFor(server).GetPayments(context.Background(), "value", nil)
@@ -95,14 +106,14 @@ func TestGetPaymentsReturnsEmptyOnEmptyBody(t *testing.T) {
 	}
 }
 
-func TestGetPaymentsReturnsEmptyOnMalformedJSON(t *testing.T) {
+func TestGetPaymentsMalformedJSONReturnsError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("not json"))
 	}))
 	defer server.Close()
-	result, err := clientFor(server).GetPayments(context.Background(), "value", nil)
-	if err != nil || len(result) != 0 {
-		t.Fatalf("%v %v", result, err)
+	_, err := clientFor(server).GetPayments(context.Background(), "value", nil)
+	if err == nil {
+		t.Fatal("expected a JSON error")
 	}
 }
 
@@ -222,8 +233,8 @@ func TestPostPaymentSendsBearerHeader(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(Payment{})
 	}))
 	defer server.Close()
-	opts := NewBrantaClientOptions(Localhost)
-	opts.DefaultAPIKey = "test-key"
+	opts := NewBrantaApiOptions(Localhost)
+	opts.APIKey = "test-key"
 	c := NewBrantaClient(opts)
 	c.baseURLOverride = server.URL
 	if _, err := c.PostPayment(context.Background(), Payment{}, nil); err != nil {
@@ -254,8 +265,8 @@ func TestPostPaymentIncludesHMACHeadersWhenConfigured(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(Payment{})
 	}))
 	defer server.Close()
-	opts := NewBrantaClientOptions(Localhost)
-	opts.DefaultAPIKey = "test-key"
+	opts := NewBrantaApiOptions(Localhost)
+	opts.APIKey = "test-key"
 	opts.HMACSecret = "shared-secret"
 	c := NewBrantaClient(opts)
 	c.baseURLOverride = server.URL
@@ -272,8 +283,8 @@ func TestPostPaymentOmitsHMACHeadersWhenNotConfigured(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(Payment{})
 	}))
 	defer server.Close()
-	opts := NewBrantaClientOptions(Localhost)
-	opts.DefaultAPIKey = "test-key"
+	opts := NewBrantaApiOptions(Localhost)
+	opts.APIKey = "test-key"
 	c := NewBrantaClient(opts)
 	c.baseURLOverride = server.URL
 	if _, err := c.PostPayment(context.Background(), Payment{}, nil); err != nil {
@@ -286,8 +297,8 @@ func TestPostPaymentNon2xxReturnsRequestFailedWithStatus(t *testing.T) {
 		w.WriteHeader(401)
 	}))
 	defer server.Close()
-	opts := NewBrantaClientOptions(Localhost)
-	opts.DefaultAPIKey = "test-key"
+	opts := NewBrantaApiOptions(Localhost)
+	opts.APIKey = "test-key"
 	c := NewBrantaClient(opts)
 	c.baseURLOverride = server.URL
 	_, err := c.PostPayment(context.Background(), Payment{}, nil)
@@ -305,8 +316,8 @@ func TestIsAPIKeyValidTrueOnSuccess(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	defer server.Close()
-	opts := NewBrantaClientOptions(Localhost)
-	opts.DefaultAPIKey = "test-key"
+	opts := NewBrantaApiOptions(Localhost)
+	opts.APIKey = "test-key"
 	c := NewBrantaClient(opts)
 	c.baseURLOverride = server.URL
 	ok, err := c.IsAPIKeyValid(context.Background(), nil)
@@ -320,8 +331,8 @@ func TestIsAPIKeyValidFalseOnFailureStatus(t *testing.T) {
 		w.WriteHeader(401)
 	}))
 	defer server.Close()
-	opts := NewBrantaClientOptions(Localhost)
-	opts.DefaultAPIKey = "test-key"
+	opts := NewBrantaApiOptions(Localhost)
+	opts.APIKey = "test-key"
 	c := NewBrantaClient(opts)
 	c.baseURLOverride = server.URL
 	ok, err := c.IsAPIKeyValid(context.Background(), nil)
