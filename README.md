@@ -35,13 +35,13 @@ case branta.VerifyUnknown:
 case branta.VerifyTampered:
     // Destination was altered. Warn. Do not show a verified card.
 case branta.VerifyIncomplete:
-    // 5xx, 429, or unreachable. Tell the user. Do not treat as unknown.
+    // 5xx, 429, or unreachable. Tell the user. Do not block send.
 }
 ```
 
 On-chain Bitcoin needs a `bitcoin:` URI with `branta_id` and `branta_secret`. bolt11, Ark, and silent payments resolve from the value. A bare address, including testnet `tb1` and `bcrt1`, is `unknown`.
 
-A 404 is `unknown`. Any other non-OK response, and no network, is `incomplete`.
+A 404 is `unknown`. A 5xx, a 429, or no network is `incomplete`.
 
 ## Receive
 
@@ -64,12 +64,7 @@ added, err := service.AddPayment(ctx, payment, nil)
 
 Store `added.Secret` with the invoice. Put `branta_id` and `branta_secret` on the invoice QR. `added.VerifyURL` is the link for the wallet.
 
-A parent platform with one shared key sets `APIKey` on the service and calls `SetChildPlatform` per payment. A parent with per-client keys sets `HMACSecret` on the service and passes each child's `APIKey` in the per-call `BrantaApiOptions`. A zero `Environment` on that override keeps the service URL.
-
-```go
-perCall := &branta.BrantaApiOptions{APIKey: "<child-api-key>"}
-added, err = service.AddPayment(ctx, payment, perCall)
-```
+A parent platform with one shared key sets `APIKey` on the service and calls `SetChildPlatform` for each payment. That is the path for new parent platforms. The deprecated per-client HMAC path is in the developer docs.
 
 ## Destination types
 
