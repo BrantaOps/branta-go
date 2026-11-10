@@ -616,6 +616,25 @@ func TestPolMatchIfAnyDualUsdt(t *testing.T) {
 	}
 }
 
+func TestPolSwappedTamperedWhenNoPolygonFamilyRailMatches(t *testing.T) {
+	client := &mockClient{getFn: func(string) ([]Payment, error) {
+		return []Payment{{Destinations: []Destination{
+			encDest("cipher-sib", "zk-sib", UsdtPolygon),
+			encDest("cipher-usdt", "zk-usdt", UsdtPolygon),
+		}}}, nil
+	}}
+	aes := &mockAES{decryptFn: func(value, _ string) (string, error) {
+		if value == "cipher-sib" {
+			return siblingUsdtAddr, nil
+		}
+		return usdtPolygonAddr, nil
+	}}
+	result, err := svc(client, aes, nil).Verify(context.Background(), polURI(swappedPolygonAddr, "enc-usdt", "the-secret"), nil)
+	if err != nil || result.Status != VerifyTampered {
+		t.Fatalf("%+v %v", result, err)
+	}
+}
+
 func TestPolUsdcMatch(t *testing.T) {
 	client := &mockClient{getFn: func(string) ([]Payment, error) {
 		return []Payment{{Destinations: []Destination{encDest("cipher-usdc", "zk-usdc", UsdcPolygon)}}}, nil
@@ -627,6 +646,17 @@ func TestPolUsdcMatch(t *testing.T) {
 	}
 	if result.MatchedDestinations[0].Type != UsdcPolygon {
 		t.Fatalf("%+v", result.MatchedDestinations)
+	}
+}
+
+func TestPolUsdcSwappedIsTampered(t *testing.T) {
+	client := &mockClient{getFn: func(string) ([]Payment, error) {
+		return []Payment{{Destinations: []Destination{encDest("cipher-usdc", "zk-usdc", UsdcPolygon)}}}, nil
+	}}
+	aes := &mockAES{decryptFn: func(string, string) (string, error) { return usdcPolygonAddr, nil }}
+	result, err := svc(client, aes, nil).Verify(context.Background(), polURI(swappedPolygonAddr, "enc-usdc", "the-secret"), nil)
+	if err != nil || result.Status != VerifyTampered {
+		t.Fatalf("%+v %v", result, err)
 	}
 }
 
