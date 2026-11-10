@@ -30,6 +30,8 @@ if err != nil {
 switch result.Status {
 case branta.VerifyMatch:
     // Show the card for result.Payments[0]. Link it to result.VerifyURL.
+    // For pol: rails, token is on result.MatchedDestinations[i].Type
+    // (usdt_polygon / usdc_polygon) — do not infer it from pol:.
 case branta.VerifyUnknown:
     // Not in Branta. Show nothing.
 case branta.VerifyTampered:
@@ -39,7 +41,7 @@ case branta.VerifyIncomplete:
 }
 ```
 
-On-chain Bitcoin needs a `bitcoin:` URI with `branta_id` and `branta_secret`. bolt11, Ark, and silent payments resolve from the value. A bare address, including testnet `tb1` and `bcrt1`, is `unknown`.
+On-chain Bitcoin needs a `bitcoin:` URI with `branta_id` and `branta_secret`. Polygon EVM rails (`usdt_polygon`, `usdc_polygon`) need a `pol:` URI with the same params — token is on `MatchedDestinations[].Type`, not the `pol:` scheme. bolt11, Ark, and silent payments resolve from the value. A bare address (including bare `0x`) is `unknown`.
 
 A 404 is `unknown`. A 5xx, a 429, or no network is `incomplete`.
 
@@ -54,6 +56,8 @@ service := branta.NewBrantaService(branta.BrantaApiOptions{
 payment := branta.NewPaymentBuilder().
     SetDescription("Invoice #12345").
     AddDestination("bc1q…", branta.BitcoinAddress).
+    // Polygon: pass UsdtPolygon / UsdcPolygon explicitly — bare 0x is not auto-detected.
+    // AddDestination("0x…", branta.UsdtPolygon).
     SetTTL(600).
     Build()
 
@@ -62,13 +66,13 @@ added, err := service.AddPayment(ctx, payment, nil)
 
 `AddPayment` encrypts a copy. The caller's `Payment` stays plaintext, so a failed post can be retried with the same value.
 
-Store `added.Secret` with the invoice. Put `branta_id` and `branta_secret` on the invoice QR. `added.VerifyURL` is the link for the wallet.
+Store `added.Secret` with the invoice. Put `branta_id` and `branta_secret` on the invoice QR (`bitcoin:…` or `pol:…`). `added.VerifyURL` is the link for the wallet.
 
 A parent platform with one shared key sets `APIKey` on the service and calls `SetChildPlatform` for each payment. That is the path for new parent platforms. The deprecated per-client HMAC path is in the developer docs.
 
 ## Destination types
 
-`AddPayment` accepts `BitcoinAddress`, `Bolt11`, `ArkAddress`, and `SilentPayment`. Bitcoin addresses use a random UUID secret. bolt11, Ark, and silent payments use a key derived from the lowercased value, so the same input always produces the same lookup token.
+`AddPayment` accepts `BitcoinAddress`, `Bolt11`, `ArkAddress`, `SilentPayment`, `UsdtPolygon`, and `UsdcPolygon`. Bitcoin and Polygon addresses use a random UUID secret. bolt11, Ark, and silent payments use a key derived from the lowercased value, so the same input always produces the same lookup token. Pass Polygon types explicitly — a bare `0x` address is not auto-detected.
 
 ## Development
 
