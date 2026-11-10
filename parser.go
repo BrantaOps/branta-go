@@ -8,7 +8,12 @@ import (
 // QRDestination is a single destination parsed from QR text.
 type QRDestination struct {
 	Value string
-	Type  DestinationType
+	// Type is set when the scheme or payload names a rail (e.g. bitcoin).
+	// Not set for pol: — token comes from the matched payment destination.
+	Type DestinationType
+	// SecretKey is true for a visible address that participates in the
+	// secret-key swap check (bitcoin path / bc / tb, or pol: address).
+	SecretKey bool
 }
 
 // QRParser parses raw QR text into one or more payment destinations.
@@ -19,10 +24,14 @@ type QRParser struct {
 	Destinations            []QRDestination
 	OnChainEncryptionText   string
 	OnChainEncryptionSecret string
+	// ExpectedSecretKeyTypes is the rail family verify may bind for this QR's
+	// scheme (match-if-any). Set from the URI scheme — not from a token stamped
+	// on the address.
+	ExpectedSecretKeyTypes []DestinationType
 	// HasUnverifiableInstruction is true when the QR carries a payable
 	// instruction this SDK cannot bind to a decrypted destination. That is any
-	// value other than a bitcoin address or a derived key (bolt11, Ark, or
-	// silent payment), including bolt12, lno, and pay.
+	// value other than a bitcoin address, a pol: address, or a derived key
+	// (bolt11, Ark, or silent payment), including bolt12, lno, and pay.
 	HasUnverifiableInstruction bool
 }
 
@@ -41,6 +50,19 @@ func NewQRParser(qrText string) QRParser {
 	}
 
 	schemeLower := strings.ToLower(scheme)
+	if schemeLower == "pol" {
+		destValue := extractDestination(text)
+		parser.Destinations = append(parser.Destinations, QRDestination{
+			Value:     destValue,
+			SecretKey: true,
+		})
+		parser.ExpectedSecretKeyTypes = append([]DestinationType(nil), PolygonEvmDestinationTypes...)
+		query := parseQuery(extractQuery(text))
+		parser.OnChainEncryptionText = query["branta_id"]
+		parser.OnChainEncryptionSecret = query["branta_secret"]
+		return parser
+	}
+
 	if schemeLower != "bitcoin" && schemeLower != "lightning" {
 		parser.Destinations = append(parser.Destinations, QRDestination{
 			Value: text,
@@ -57,8 +79,9 @@ func NewQRParser(qrText string) QRParser {
 		destType = lightningSchemeType(destValue)
 	}
 	parser.Destinations = append(parser.Destinations, QRDestination{
-		Value: destValue,
-		Type:  destType,
+		Value:     destValue,
+		Type:      destType,
+		SecretKey: destType == BitcoinAddress,
 	})
 	if destValue != "" && destType != BitcoinAddress && DerivedKeyType(destValue) == "" {
 		parser.HasUnverifiableInstruction = true
@@ -77,22 +100,38 @@ func NewQRParser(qrText string) QRParser {
 		if onChain {
 			destType = BitcoinAddress
 		}
-		parser.Destinations = append(parser.Destinations, QRDestination{Value: value, Type: destType})
 		if value != "" && !onChain && DerivedKeyType(value) == "" {
 			parser.HasUnverifiableInstruction = true
+			return
 		}
+		parser.Destinations = append(parser.Destinations, QRDestination{
+			Value:     value,
+			Type:      destType,
+			SecretKey: onChain,
+		})
 	}
 
 	addBindable("lightning", false)
-	addBindable("bolt12", false)
 	addBindable("ark", false)
 	addBindable("silent_payment", false)
 	addBindable("bc", true)
 	addBindable("tb", true)
 	addBindable("sp", false)
-	addBindable("lno", false)
+	if query["bolt12"] != "" {
+		parser.HasUnverifiableInstruction = true
+	}
+	if query["lno"] != "" {
+		parser.HasUnverifiableInstruction = true
+	}
 	if query["pay"] != "" {
 		parser.HasUnverifiableInstruction = true
+	}
+
+	for _, d := range parser.Destinations {
+		if d.SecretKey {
+			parser.ExpectedSecretKeyTypes = []DestinationType{BitcoinAddress}
+			break
+		}
 	}
 
 	return parser

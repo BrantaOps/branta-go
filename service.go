@@ -57,15 +57,18 @@ func addressesMatch(a, b string) bool {
 	if isBech32(a) && isBech32(b) {
 		return strings.EqualFold(a, b)
 	}
+	if strings.HasPrefix(a, "0x") && strings.HasPrefix(b, "0x") {
+		return strings.EqualFold(a, b)
+	}
 	return a == b
 }
 
-// uniformOnChainAddress returns the single on-chain address every on-chain
+// uniformOnChainAddress returns the single secret-key address every secret-key
 // instruction agrees on. Conflicting addresses are errTampered.
 func uniformOnChainAddress(parser QRParser) (string, error) {
 	first := ""
 	for _, d := range parser.Destinations {
-		if d.Type != BitcoinAddress || strings.TrimSpace(d.Value) == "" {
+		if !d.SecretKey || strings.TrimSpace(d.Value) == "" {
 			continue
 		}
 		if first == "" {
@@ -79,11 +82,39 @@ func uniformOnChainAddress(parser QRParser) (string, error) {
 	return first, nil
 }
 
+func expectedSecretKeyTypes(parser QRParser) map[DestinationType]struct{} {
+	if len(parser.ExpectedSecretKeyTypes) == 0 {
+		return nil
+	}
+	out := make(map[DestinationType]struct{}, len(parser.ExpectedSecretKeyTypes))
+	for _, t := range parser.ExpectedSecretKeyTypes {
+		out[t] = struct{}{}
+	}
+	return out
+}
+
+func matchedDestinationsFrom(payments []Payment) []Destination {
+	var out []Destination
+	for _, payment := range payments {
+		for _, destination := range payment.Destinations {
+			if !destination.IsEncrypted {
+				out = append(out, destination)
+			}
+		}
+	}
+	return out
+}
+
 func toVerifyResult(payments []Payment, verifyURL string) VerifyResult {
 	if len(payments) == 0 {
 		return VerifyResult{Status: VerifyUnknown, VerifyURL: verifyURL}
 	}
-	return VerifyResult{Status: VerifyMatch, Payments: payments, VerifyURL: verifyURL}
+	return VerifyResult{
+		Status:              VerifyMatch,
+		Payments:            payments,
+		MatchedDestinations: matchedDestinationsFrom(payments),
+		VerifyURL:           verifyURL,
+	}
 }
 
 // Verify parses a scanned QR or pasted text and looks it up.
@@ -132,7 +163,15 @@ func (s *BrantaService) verifyParsed(ctx context.Context, parser QRParser, optio
 		if expectedOnChainAddress == "" && len(additionalValues) == 0 {
 			return VerifyResult{Status: VerifyUnknown, VerifyURL: s.buildVerifyURL(options, lookup, nil)}, nil
 		}
-		payments, verifyURL, err := s.lookupByBrantaID(ctx, parser.OnChainEncryptionText, parser.OnChainEncryptionSecret, additionalValues, expectedOnChainAddress, options)
+		payments, verifyURL, err := s.lookupByBrantaID(
+			ctx,
+			parser.OnChainEncryptionText,
+			parser.OnChainEncryptionSecret,
+			additionalValues,
+			expectedOnChainAddress,
+			expectedSecretKeyTypes(parser),
+			options,
+		)
 		if err != nil {
 			return VerifyResult{}, err
 		}
@@ -156,6 +195,7 @@ func (s *BrantaService) lookupByBrantaID(
 	lookupValue, encryptionKey string,
 	additionalHashValues []string,
 	expectedOnChainAddress string,
+	expectedOnChainTypes map[DestinationType]struct{},
 	options *BrantaApiOptions,
 ) ([]Payment, string, error) {
 	payments, err := s.client.GetPayments(ctx, lookupValue, options)
@@ -166,7 +206,13 @@ func (s *BrantaService) lookupByBrantaID(
 	keys := newOrderedKeys()
 	var bound []Payment
 	for i := range payments {
-		onChainBound, err := s.decryptDestinations(&payments[i], encryptionKey, keys, expectedOnChainAddress)
+		onChainBound, err := s.decryptDestinations(
+			&payments[i],
+			encryptionKey,
+			keys,
+			expectedOnChainAddress,
+			expectedOnChainTypes,
+		)
 		if err != nil {
 			return nil, "", err
 		}
@@ -246,7 +292,7 @@ func (s *BrantaService) AddPayment(ctx context.Context, payment Payment, options
 			}
 		}
 
-		if destType == BitcoinAddress {
+		if IsSecretKeyAddressType(destType) {
 			ciphertext, err := s.aes.Encrypt(destination.Value, secret, s.secretGenerator.DeterministicNonce())
 			if err != nil {
 				return AddPaymentResult{}, err
@@ -323,11 +369,22 @@ func (s *BrantaService) decryptDestinations(
 	encryptionKey string,
 	keys *orderedKeys,
 	expectedOnChainAddress string,
+	expectedOnChainTypes map[DestinationType]struct{},
 ) (bool, error) {
 	onChainBound := expectedOnChainAddress == ""
+	decryptedExpectedRail := false
 	for i := range payment.Destinations {
-		if !payment.Destinations[i].IsEncrypted || payment.Destinations[i].Type != BitcoinAddress {
+		if !payment.Destinations[i].IsEncrypted {
 			continue
+		}
+		if !IsSecretKeyAddressType(payment.Destinations[i].Type) {
+			continue
+		}
+		// Outside this QR's rail family (e.g. bitcoin when scanning pol:) — leave encrypted.
+		if expectedOnChainTypes != nil {
+			if _, ok := expectedOnChainTypes[payment.Destinations[i].Type]; !ok {
+				continue
+			}
 		}
 		if encryptionKey == "" {
 			continue
@@ -336,8 +393,10 @@ func (s *BrantaService) decryptDestinations(
 		if err != nil {
 			continue
 		}
+		decryptedExpectedRail = true
+		// Match-if-any within the family: a sibling rail with a different address stays encrypted.
 		if expectedOnChainAddress != "" && !addressesMatch(plaintext, expectedOnChainAddress) {
-			return false, errTampered
+			continue
 		}
 		if expectedOnChainAddress != "" {
 			onChainBound = true
@@ -350,6 +409,10 @@ func (s *BrantaService) decryptDestinations(
 			}
 		}
 		s.tryDecryptMetadata(payment, i, encryptionKey)
+	}
+	// Tampered only when a family rail decrypted and none matched the scanned address.
+	if expectedOnChainAddress != "" && !onChainBound && decryptedExpectedRail {
+		return false, errTampered
 	}
 	return onChainBound, nil
 }

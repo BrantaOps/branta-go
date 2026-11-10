@@ -246,7 +246,7 @@ func TestSpParamAddsSilentPayment(t *testing.T) {
 
 func TestLnoAndPayAreUnverifiable(t *testing.T) {
 	lno := NewQRParser("bitcoin:bc1qmerchant?lno=lno1qqexample")
-	if len(lno.Destinations) != 2 || lno.Destinations[1].Value != "lno1qqexample" || lno.Destinations[1].Type != "" {
+	if len(lno.Destinations) != 1 || lno.Destinations[0].Value != "bc1qmerchant" {
 		t.Fatalf("%+v", lno.Destinations)
 	}
 	if !lno.HasUnverifiableInstruction {
@@ -259,6 +259,33 @@ func TestLnoAndPayAreUnverifiable(t *testing.T) {
 	}
 	if len(pay.Destinations) != 1 || pay.Destinations[0].Value != "bc1qmerchant" {
 		t.Fatalf("%+v", pay.Destinations)
+	}
+}
+
+func TestPolUriIsSecretKeyWithoutTokenType(t *testing.T) {
+	p := NewQRParser("pol:0x278297528c32eCa01295B0d2135984d3442ec963?value=50&branta_id=enc&branta_secret=sec")
+	dest, ok := p.Destination()
+	if !ok || dest != "0x278297528c32eCa01295B0d2135984d3442ec963" {
+		t.Fatal(dest)
+	}
+	if p.DestinationType() != "" || !p.Destinations[0].SecretKey {
+		t.Fatalf("%+v", p.Destinations[0])
+	}
+	if p.OnChainEncryptionText != "enc" || p.OnChainEncryptionSecret != "sec" {
+		t.Fatal(p.OnChainEncryptionText, p.OnChainEncryptionSecret)
+	}
+	if len(p.ExpectedSecretKeyTypes) != 2 || p.ExpectedSecretKeyTypes[0] != UsdtPolygon || p.ExpectedSecretKeyTypes[1] != UsdcPolygon {
+		t.Fatalf("%v", p.ExpectedSecretKeyTypes)
+	}
+}
+
+func TestBitcoinUriExpectsBitcoinSecretKeyFamily(t *testing.T) {
+	p := NewQRParser("bitcoin:" + "bc1qmerchant" + "?branta_id=enc&branta_secret=sec")
+	if !p.Destinations[0].SecretKey {
+		t.Fatal("secret key")
+	}
+	if len(p.ExpectedSecretKeyTypes) != 1 || p.ExpectedSecretKeyTypes[0] != BitcoinAddress {
+		t.Fatalf("%v", p.ExpectedSecretKeyTypes)
 	}
 }
 
