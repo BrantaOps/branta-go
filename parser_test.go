@@ -351,3 +351,38 @@ func TestDerivedKeyAndBitcoinInstructionsAreVerifiable(t *testing.T) {
 		}
 	}
 }
+
+func TestChainSchemesMapToFamilies(t *testing.T) {
+	cases := []struct {
+		scheme  string
+		address string
+		want    []DestinationType
+	}{
+		{"eth", "0xBF5550253939187432Ef4dccE8089765d3DCb47f", []DestinationType{UsdtEthereum, UsdcEthereum}},
+		{"bsc", "0xBF5550253939187432Ef4dccE8089765d3DCb47f", []DestinationType{UsdtBsc, UsdcBsc}},
+		{"tron", "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb", []DestinationType{UsdtTron}},
+		{"ton", "UQBexample", []DestinationType{UsdtTon, UsdcTon}},
+		{"sol", "7EqQdEULxWcraVx3mXKFjc84LhCkMGZCkRuDofycyinf", []DestinationType{UsdtSolana, UsdcSolana}},
+	}
+	for _, tc := range cases {
+		p := NewQRParser(tc.scheme + ":" + tc.address + "?value=1&branta_id=enc&branta_secret=sec")
+		dest, ok := p.Destination()
+		if !ok || dest != tc.address {
+			t.Fatalf("%s: %q", tc.scheme, dest)
+		}
+		if p.DestinationType() != "" || !p.Destinations[0].SecretKey {
+			t.Fatalf("%s: %+v", tc.scheme, p.Destinations[0])
+		}
+		if p.OnChainEncryptionText != "enc" || p.OnChainEncryptionSecret != "sec" {
+			t.Fatalf("%s: %q %q", tc.scheme, p.OnChainEncryptionText, p.OnChainEncryptionSecret)
+		}
+		if len(p.ExpectedSecretKeyTypes) != len(tc.want) {
+			t.Fatalf("%s: %v", tc.scheme, p.ExpectedSecretKeyTypes)
+		}
+		for i := range tc.want {
+			if p.ExpectedSecretKeyTypes[i] != tc.want[i] {
+				t.Fatalf("%s: %v", tc.scheme, p.ExpectedSecretKeyTypes)
+			}
+		}
+	}
+}

@@ -31,6 +31,15 @@ func TestDestinationTypeWireFormatIsExact(t *testing.T) {
 		{SilentPayment, "silent_payment"},
 		{UsdtPolygon, "usdt_polygon"},
 		{UsdcPolygon, "usdc_polygon"},
+		{UsdtEthereum, "usdt_ethereum"},
+		{UsdcEthereum, "usdc_ethereum"},
+		{UsdtBsc, "usdt_bsc"},
+		{UsdcBsc, "usdc_bsc"},
+		{UsdtTron, "usdt_tron"},
+		{UsdtTon, "usdt_ton"},
+		{UsdcTon, "usdc_ton"},
+		{UsdtSolana, "usdt_solana"},
+		{UsdcSolana, "usdc_solana"},
 	}
 	for _, tc := range cases {
 		if string(tc.variant) != tc.expected {
@@ -56,5 +65,41 @@ func TestPolygonEvmHelpers(t *testing.T) {
 	}
 	if IsSecretKeyAddressType(Bolt11) {
 		t.Fatal("bolt11")
+	}
+}
+
+func TestSecretKeyURIFamilies(t *testing.T) {
+	want := map[string][]DestinationType{
+		"pol":  {UsdtPolygon, UsdcPolygon},
+		"eth":  {UsdtEthereum, UsdcEthereum},
+		"bsc":  {UsdtBsc, UsdcBsc},
+		"tron": {UsdtTron},
+		"ton":  {UsdtTon, UsdcTon},
+		"sol":  {UsdtSolana, UsdcSolana},
+	}
+	if len(SecretKeyURIFamilies) != len(want) {
+		t.Fatalf("%v", SecretKeyURIFamilies)
+	}
+	for scheme, family := range want {
+		got := SecretKeyURIFamilies[scheme]
+		if len(got) != len(family) {
+			t.Fatalf("%s: %v", scheme, got)
+		}
+		for i := range family {
+			if got[i] != family[i] {
+				t.Fatalf("%s: %v", scheme, got)
+			}
+			if !IsSecretKeyAddressType(family[i]) {
+				t.Fatalf("%s not secret key", family[i])
+			}
+		}
+	}
+	if IsPolygonEvmDestinationType(UsdtEthereum) {
+		t.Fatal("ethereum is not polygon")
+	}
+	for _, nonSecret := range []DestinationType{Bolt11, ArkAddress, SilentPayment} {
+		if IsSecretKeyAddressType(nonSecret) {
+			t.Fatal(nonSecret)
+		}
 	}
 }

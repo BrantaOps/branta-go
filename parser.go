@@ -30,7 +30,7 @@ type QRParser struct {
 	ExpectedSecretKeyTypes []DestinationType
 	// HasUnverifiableInstruction is true when the QR carries a payable
 	// instruction this SDK cannot bind to a decrypted destination. That is any
-	// value other than a bitcoin address, a pol: address, or a derived key
+	// value other than a bitcoin address, a chain-scheme address (pol:, eth:, ...), or a derived key
 	// (bolt11, Ark, or silent payment), including bolt12, lno, and pay.
 	HasUnverifiableInstruction bool
 }
@@ -50,13 +50,13 @@ func NewQRParser(qrText string) QRParser {
 	}
 
 	schemeLower := strings.ToLower(scheme)
-	if schemeLower == "pol" {
+	if family, ok := SecretKeyURIFamilies[schemeLower]; ok {
 		destValue := extractDestination(text)
 		parser.Destinations = append(parser.Destinations, QRDestination{
 			Value:     destValue,
 			SecretKey: true,
 		})
-		parser.ExpectedSecretKeyTypes = append([]DestinationType(nil), PolygonEvmDestinationTypes...)
+		parser.ExpectedSecretKeyTypes = append([]DestinationType(nil), family...)
 		query := parseQuery(extractQuery(text))
 		parser.OnChainEncryptionText = query["branta_id"]
 		parser.OnChainEncryptionSecret = query["branta_secret"]
