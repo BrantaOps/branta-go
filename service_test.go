@@ -485,6 +485,18 @@ func TestPolUsdtCaseInsensitiveMatch(t *testing.T) {
 	}
 }
 
+func TestPolUsdt0xPrefixCaseInsensitiveMatch(t *testing.T) {
+	client := &mockClient{getFn: func(string) ([]Payment, error) {
+		return []Payment{{Destinations: []Destination{encDest("cipher-usdt", "zk-usdt", UsdtPolygon)}}}, nil
+	}}
+	aes := &mockAES{decryptFn: func(string, string) (string, error) { return usdtPolygonAddr, nil }}
+	mixed := "0X" + usdtPolygonAddr[2:]
+	result, err := svc(client, aes, nil).Verify(context.Background(), polURI(mixed, "enc-usdt", "the-secret"), nil)
+	if err != nil || result.Status != VerifyMatch {
+		t.Fatalf("%+v %v", result, err)
+	}
+}
+
 func TestPolUsdtSwappedIsTampered(t *testing.T) {
 	client := &mockClient{getFn: func(string) ([]Payment, error) {
 		return []Payment{{Destinations: []Destination{encDest("cipher-usdt", "zk-usdt", UsdtPolygon)}}}, nil
