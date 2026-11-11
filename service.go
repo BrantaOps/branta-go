@@ -57,7 +57,7 @@ func addressesMatch(a, b string) bool {
 	if isBech32(a) && isBech32(b) {
 		return strings.EqualFold(a, b)
 	}
-	if strings.HasPrefix(a, "0x") && strings.HasPrefix(b, "0x") {
+	if strings.HasPrefix(strings.ToLower(a), "0x") && strings.HasPrefix(strings.ToLower(b), "0x") {
 		return strings.EqualFold(a, b)
 	}
 	return a == b
