@@ -40,7 +40,6 @@ const (
 	UsdcBsc        DestinationType = "usdc_bsc"
 	UsdtTron       DestinationType = "usdt_tron"
 	UsdtTon        DestinationType = "usdt_ton"
-	UsdcTon        DestinationType = "usdc_ton"
 	UsdtSolana     DestinationType = "usdt_solana"
 	UsdcSolana     DestinationType = "usdc_solana"
 )
@@ -65,7 +64,7 @@ var BscEvmDestinationTypes = []DestinationType{UsdtBsc, UsdcBsc}
 var TronDestinationTypes = []DestinationType{UsdtTron}
 
 // TonDestinationTypes are the TON secret-key rails (ton: URI).
-var TonDestinationTypes = []DestinationType{UsdtTon, UsdcTon}
+var TonDestinationTypes = []DestinationType{UsdtTon}
 
 // SolanaDestinationTypes are the Solana secret-key rails (sol: URI).
 var SolanaDestinationTypes = []DestinationType{UsdtSolana, UsdcSolana}

@@ -37,7 +37,6 @@ func TestDestinationTypeWireFormatIsExact(t *testing.T) {
 		{UsdcBsc, "usdc_bsc"},
 		{UsdtTron, "usdt_tron"},
 		{UsdtTon, "usdt_ton"},
-		{UsdcTon, "usdc_ton"},
 		{UsdtSolana, "usdt_solana"},
 		{UsdcSolana, "usdc_solana"},
 	}
@@ -74,7 +73,7 @@ func TestSecretKeyURIFamilies(t *testing.T) {
 		"eth":  {UsdtEthereum, UsdcEthereum},
 		"bsc":  {UsdtBsc, UsdcBsc},
 		"tron": {UsdtTron},
-		"ton":  {UsdtTon, UsdcTon},
+		"ton":  {UsdtTon},
 		"sol":  {UsdtSolana, UsdcSolana},
 	}
 	if len(SecretKeyURIFamilies) != len(want) {

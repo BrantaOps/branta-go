@@ -361,7 +361,7 @@ func TestChainSchemesMapToFamilies(t *testing.T) {
 		{"eth", "0xBF5550253939187432Ef4dccE8089765d3DCb47f", []DestinationType{UsdtEthereum, UsdcEthereum}},
 		{"bsc", "0xBF5550253939187432Ef4dccE8089765d3DCb47f", []DestinationType{UsdtBsc, UsdcBsc}},
 		{"tron", "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb", []DestinationType{UsdtTron}},
-		{"ton", "UQBexample", []DestinationType{UsdtTon, UsdcTon}},
+		{"ton", "UQBexample", []DestinationType{UsdtTon}},
 		{"sol", "7EqQdEULxWcraVx3mXKFjc84LhCkMGZCkRuDofycyinf", []DestinationType{UsdtSolana, UsdcSolana}},
 	}
 	for _, tc := range cases {
