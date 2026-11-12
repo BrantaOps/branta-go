@@ -34,22 +34,61 @@ const (
 	SilentPayment  DestinationType = "silent_payment"
 	UsdtPolygon    DestinationType = "usdt_polygon"
 	UsdcPolygon    DestinationType = "usdc_polygon"
+	UsdtEthereum   DestinationType = "usdt_ethereum"
+	UsdcEthereum   DestinationType = "usdc_ethereum"
+	UsdtBsc        DestinationType = "usdt_bsc"
+	UsdcBsc        DestinationType = "usdc_bsc"
+	UsdtTron       DestinationType = "usdt_tron"
+	UsdtTon        DestinationType = "usdt_ton"
+	UsdtSolana     DestinationType = "usdt_solana"
+	UsdcSolana     DestinationType = "usdc_solana"
 )
 
-// PolygonEvmDestinationTypes are the Polygon EVM secret-key rails.
-// A pol: URI maps to this family for verify (match-if-any). Token is still
-// the destination type on the payment.
-var PolygonEvmDestinationTypes = []DestinationType{UsdtPolygon, UsdcPolygon}
+// polygonEvmDestinationTypes are the Polygon EVM secret-key rails (pol: URI).
+var polygonEvmDestinationTypes = []DestinationType{UsdtPolygon, UsdcPolygon}
 
-// IsPolygonEvmDestinationType reports whether type is a Polygon EVM rail.
-func IsPolygonEvmDestinationType(t DestinationType) bool {
-	return t == UsdtPolygon || t == UsdcPolygon
+// ethereumEvmDestinationTypes are the Ethereum secret-key rails (eth: URI).
+var ethereumEvmDestinationTypes = []DestinationType{UsdtEthereum, UsdcEthereum}
+
+// bscEvmDestinationTypes are the BSC secret-key rails (bsc: URI).
+var bscEvmDestinationTypes = []DestinationType{UsdtBsc, UsdcBsc}
+
+// tronDestinationTypes are the Tron secret-key rails (tron: URI).
+var tronDestinationTypes = []DestinationType{UsdtTron}
+
+// tonDestinationTypes are the TON secret-key rails (ton: URI).
+var tonDestinationTypes = []DestinationType{UsdtTon}
+
+// solanaDestinationTypes are the Solana secret-key rails (sol: URI).
+var solanaDestinationTypes = []DestinationType{UsdtSolana, UsdcSolana}
+
+// secretKeyURIFamilies maps a lowercase URI scheme to its secret-key
+// destination family for verify (match-if-any). Token is the destination type
+// on the payment, not the scheme. Unexported — consumers use DestinationType
+// constants and Verify / AddPayment only.
+var secretKeyURIFamilies = map[string][]DestinationType{
+	"pol":  polygonEvmDestinationTypes,
+	"eth":  ethereumEvmDestinationTypes,
+	"bsc":  bscEvmDestinationTypes,
+	"tron": tronDestinationTypes,
+	"ton":  tonDestinationTypes,
+	"sol":  solanaDestinationTypes,
 }
 
-// IsSecretKeyAddressType reports whether type is encrypted with a random
+// isSecretKeyAddressType reports whether type is encrypted with a random
 // branta_secret (not a derived key).
-func IsSecretKeyAddressType(t DestinationType) bool {
-	return t == BitcoinAddress || IsPolygonEvmDestinationType(t)
+func isSecretKeyAddressType(t DestinationType) bool {
+	if t == BitcoinAddress {
+		return true
+	}
+	for _, family := range secretKeyURIFamilies {
+		for _, member := range family {
+			if member == t {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // VerifyStatus is the result of Verify.

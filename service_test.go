@@ -200,6 +200,86 @@ func TestOnChainMatch(t *testing.T) {
 	}
 }
 
+func TestCombinedBrantaQrDecryptsAddressAndInvoice(t *testing.T) {
+	client := &mockClient{getFn: func(lookup string) ([]Payment, error) {
+		if lookup != "cipher-id" {
+			t.Fatal(lookup)
+		}
+		return []Payment{{Destinations: []Destination{
+			encDest("cipher-btc", "zk-btc", BitcoinAddress),
+			encDest("cipher-bolt11", "zk-bolt11", Bolt11),
+		}}}, nil
+	}}
+	aes := &mockAES{decryptFn: func(value, secret string) (string, error) {
+		if value == "cipher-btc" && secret == "the-secret" {
+			return addr, nil
+		}
+		if value == "cipher-bolt11" && secret == ToNormalizedHash(invoice) {
+			return invoice, nil
+		}
+		return "", errors.New("miss")
+	}}
+	qr := "bitcoin:" + addr + "?lightning=" + invoice + "&branta_id=cipher-id&branta_secret=the-secret"
+	result, err := svc(client, aes, nil).Verify(context.Background(), qr, nil)
+	if err != nil || result.Status != VerifyMatch {
+		t.Fatalf("%+v %v", result, err)
+	}
+	dests := result.Payments[0].Destinations
+	if dests[0].Value != addr || dests[1].Value != invoice {
+		t.Fatalf("%+v", dests)
+	}
+	if len(result.MatchedDestinations) != 2 ||
+		result.MatchedDestinations[0].Type != BitcoinAddress ||
+		result.MatchedDestinations[0].Value != addr ||
+		result.MatchedDestinations[1].Type != Bolt11 ||
+		result.MatchedDestinations[1].Value != invoice {
+		t.Fatalf("%+v", result.MatchedDestinations)
+	}
+}
+
+func TestCombinedBrantaQrSwappedAddressIsTampered(t *testing.T) {
+	client := &mockClient{getFn: func(string) ([]Payment, error) {
+		return []Payment{{Destinations: []Destination{
+			encDest("cipher-btc", "zk-btc", BitcoinAddress),
+			encDest("cipher-bolt11", "zk-bolt11", Bolt11),
+		}}}, nil
+	}}
+	aes := &mockAES{decryptFn: func(value, secret string) (string, error) {
+		if value == "cipher-btc" {
+			return "bc1qother", nil
+		}
+		if value == "cipher-bolt11" {
+			return invoice, nil
+		}
+		return "", errors.New("miss")
+	}}
+	qr := "bitcoin:" + addr + "?lightning=" + invoice + "&branta_id=cipher-id&branta_secret=the-secret"
+	result, err := svc(client, aes, nil).Verify(context.Background(), qr, nil)
+	if err != nil || result.Status != VerifyTampered || result.Payments != nil {
+		t.Fatalf("%+v %v", result, err)
+	}
+}
+
+func TestCombinedBrantaQrAttackerLightningIsUnknown(t *testing.T) {
+	// Payment only has bitcoin — attacker bolt11 cannot bind (same as .NET).
+	client := &mockClient{getFn: func(string) ([]Payment, error) {
+		return []Payment{{Destinations: []Destination{
+			encDest("cipher-btc", "zk-btc", BitcoinAddress),
+		}}}, nil
+	}}
+	aes := &mockAES{decryptFn: func(value, secret string) (string, error) {
+		if value == "cipher-btc" && secret == "the-secret" {
+			return addr, nil
+		}
+		return "", errors.New("miss")
+	}}
+	qr := "bitcoin:" + addr + "?lightning=lnbc1attacker&branta_id=cipher-id&branta_secret=the-secret"
+	result, err := svc(client, aes, nil).Verify(context.Background(), qr, nil)
+	if err != nil || result.Status != VerifyUnknown {
+		t.Fatalf("%+v %v", result, err)
+	}
+}
+
 func TestSwappedAddressIsTampered(t *testing.T) {
 	other := "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
 	client := &mockClient{getFn: func(string) ([]Payment, error) {
@@ -793,5 +873,118 @@ func TestAddPaymentBareOxWithoutTypeUnsupported(t *testing.T) {
 	var unsupported *UnsupportedDestinationTypeError
 	if !errors.As(err, &unsupported) {
 		t.Fatal(err)
+	}
+}
+
+const usdtEthereumAddr = "0xBF5550253939187432Ef4dccE8089765d3DCb47f"
+const usdtTronAddr = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb"
+const usdcSolanaAddr = "7EqQdEULxWcraVx3mXKFjc84LhCkMGZCkRuDofycyinf"
+
+func chainURI(scheme, address, encrypted, secret string) string {
+	return scheme + ":" + address + "?value=50&branta_id=" + encrypted + "&branta_secret=" + secret
+}
+
+func verifyChainMatch(t *testing.T, scheme, address string, destType DestinationType) VerifyResult {
+	t.Helper()
+	client := &mockClient{getFn: func(lookup string) ([]Payment, error) {
+		if lookup != "enc-chain" {
+			t.Fatal(lookup)
+		}
+		return []Payment{{Destinations: []Destination{encDest("cipher-chain", "zk-chain", destType)}}}, nil
+	}}
+	aes := &mockAES{decryptFn: func(value, secret string) (string, error) {
+		if value != "cipher-chain" || secret != "the-secret" {
+			return "", errors.New("wrong key")
+		}
+		return address, nil
+	}}
+	result, err := svc(client, aes, nil).Verify(context.Background(), chainURI(scheme, address, "enc-chain", "the-secret"), nil)
+	if err != nil || result.Status != VerifyMatch {
+		t.Fatalf("%+v %v", result, err)
+	}
+	if len(result.MatchedDestinations) != 1 ||
+		result.MatchedDestinations[0].Type != destType ||
+		result.MatchedDestinations[0].Value != address {
+		t.Fatalf("%+v", result.MatchedDestinations)
+	}
+	return result
+}
+
+func TestEthUsdtMatch(t *testing.T) {
+	verifyChainMatch(t, "eth", usdtEthereumAddr, UsdtEthereum)
+}
+
+func TestTronUsdtMatch(t *testing.T) {
+	verifyChainMatch(t, "tron", usdtTronAddr, UsdtTron)
+}
+
+func TestSolUsdcMatch(t *testing.T) {
+	verifyChainMatch(t, "sol", usdcSolanaAddr, UsdcSolana)
+}
+
+func TestTronSwappedTampered(t *testing.T) {
+	client := &mockClient{getFn: func(string) ([]Payment, error) {
+		return []Payment{{Destinations: []Destination{encDest("cipher-chain", "zk-chain", UsdtTron)}}}, nil
+	}}
+	aes := &mockAES{decryptFn: func(string, string) (string, error) { return usdtTronAddr, nil }}
+	swapped := usdtTronAddr[:len(usdtTronAddr)-1] + "x"
+	result, err := svc(client, aes, nil).Verify(context.Background(), chainURI("tron", swapped, "enc-chain", "the-secret"), nil)
+	if err != nil || result.Status != VerifyTampered {
+		t.Fatalf("%+v %v", result, err)
+	}
+}
+
+func TestEthSchemeIgnoresPolygonFamilyRail(t *testing.T) {
+	client := &mockClient{getFn: func(string) ([]Payment, error) {
+		return []Payment{{Destinations: []Destination{
+			encDest("cipher-poly", "zk-poly", UsdtPolygon),
+			encDest("cipher-eth", "zk-eth", UsdtEthereum),
+		}}}, nil
+	}}
+	aes := &mockAES{decryptFn: func(value, _ string) (string, error) {
+		if value == "cipher-poly" {
+			return usdtPolygonAddr, nil
+		}
+		return usdtEthereumAddr, nil
+	}}
+	result, err := svc(client, aes, nil).Verify(context.Background(), chainURI("eth", usdtEthereumAddr, "enc-chain", "the-secret"), nil)
+	if err != nil || result.Status != VerifyMatch {
+		t.Fatalf("%+v %v", result, err)
+	}
+	dests := result.Payments[0].Destinations
+	if !dests[0].IsEncrypted || dests[1].IsEncrypted || len(result.MatchedDestinations) != 1 {
+		t.Fatalf("%+v", dests)
+	}
+}
+
+func TestBareStablecoinAddressesAreUnknown(t *testing.T) {
+	for _, address := range []string{usdtEthereumAddr, usdtTronAddr, usdcSolanaAddr} {
+		client := &mockClient{getFn: func(string) ([]Payment, error) {
+			t.Fatal("must not GET")
+			return nil, nil
+		}}
+		result, err := svc(client, nil, nil).Verify(context.Background(), address, nil)
+		if err != nil || result.Status != VerifyUnknown {
+			t.Fatalf("%s: %+v %v", address, result, err)
+		}
+	}
+}
+
+func TestAddPaymentEncryptsUsdtTronWithSecret(t *testing.T) {
+	client := &mockClient{}
+	payment := Payment{Destinations: []Destination{{Value: usdtTronAddr, Type: UsdtTron, ID: "zk-1"}}}
+	added, err := svc(client, nil, &mockSecrets{values: []string{"tron-secret"}}).AddPayment(context.Background(), payment, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payment.Destinations[0].Value != usdtTronAddr {
+		t.Fatal("caller mutated")
+	}
+	posted := client.posted[0].Destinations[0]
+	if posted.Value == usdtTronAddr || posted.Type != UsdtTron {
+		t.Fatalf("%+v", posted)
+	}
+	if added.Secret != "tron-secret" {
+		t.Fatal(added.Secret)
 	}
 }

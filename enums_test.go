@@ -31,30 +31,60 @@ func TestDestinationTypeWireFormatIsExact(t *testing.T) {
 		{SilentPayment, "silent_payment"},
 		{UsdtPolygon, "usdt_polygon"},
 		{UsdcPolygon, "usdc_polygon"},
+		{UsdtEthereum, "usdt_ethereum"},
+		{UsdcEthereum, "usdc_ethereum"},
+		{UsdtBsc, "usdt_bsc"},
+		{UsdcBsc, "usdc_bsc"},
+		{UsdtTron, "usdt_tron"},
+		{UsdtTon, "usdt_ton"},
+		{UsdtSolana, "usdt_solana"},
+		{UsdcSolana, "usdc_solana"},
+	}
+	if len(cases) != 14 {
+		t.Fatalf("expected 14 destination types, got %d", len(cases))
 	}
 	for _, tc := range cases {
 		if string(tc.variant) != tc.expected {
 			t.Errorf("wire format mismatch for %q: got %q", tc.expected, tc.variant)
 		}
 	}
+	if DestinationType("usdc_ton") == UsdcSolana || DestinationType("usdc_ton") == UsdtTon {
+		t.Fatal("usdc_ton must stay deferred")
+	}
 }
 
-func TestPolygonEvmHelpers(t *testing.T) {
-	if len(PolygonEvmDestinationTypes) != 2 ||
-		PolygonEvmDestinationTypes[0] != UsdtPolygon ||
-		PolygonEvmDestinationTypes[1] != UsdcPolygon {
-		t.Fatalf("%v", PolygonEvmDestinationTypes)
+func TestSecretKeyURIFamilies(t *testing.T) {
+	want := map[string][]DestinationType{
+		"pol":  {UsdtPolygon, UsdcPolygon},
+		"eth":  {UsdtEthereum, UsdcEthereum},
+		"bsc":  {UsdtBsc, UsdcBsc},
+		"tron": {UsdtTron},
+		"ton":  {UsdtTon},
+		"sol":  {UsdtSolana, UsdcSolana},
 	}
-	if !IsPolygonEvmDestinationType(UsdtPolygon) || !IsPolygonEvmDestinationType(UsdcPolygon) {
-		t.Fatal("polygon")
+	if len(secretKeyURIFamilies) != len(want) {
+		t.Fatalf("%v", secretKeyURIFamilies)
 	}
-	if IsPolygonEvmDestinationType(BitcoinAddress) {
+	for scheme, family := range want {
+		got := secretKeyURIFamilies[scheme]
+		if len(got) != len(family) {
+			t.Fatalf("%s: %v", scheme, got)
+		}
+		for i := range family {
+			if got[i] != family[i] {
+				t.Fatalf("%s: %v", scheme, got)
+			}
+			if !isSecretKeyAddressType(family[i]) {
+				t.Fatalf("%s not secret key", family[i])
+			}
+		}
+	}
+	if !isSecretKeyAddressType(BitcoinAddress) {
 		t.Fatal("bitcoin")
 	}
-	if !IsSecretKeyAddressType(BitcoinAddress) || !IsSecretKeyAddressType(UsdtPolygon) {
-		t.Fatal("secret key")
-	}
-	if IsSecretKeyAddressType(Bolt11) {
-		t.Fatal("bolt11")
+	for _, nonSecret := range []DestinationType{Bolt11, ArkAddress, SilentPayment} {
+		if isSecretKeyAddressType(nonSecret) {
+			t.Fatal(nonSecret)
+		}
 	}
 }

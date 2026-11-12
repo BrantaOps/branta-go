@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func clientFor(server *httptest.Server) *BrantaClient {
@@ -106,14 +107,70 @@ func TestGetPaymentsReturnsEmptyOnEmptyBody(t *testing.T) {
 	}
 }
 
-func TestGetPaymentsMalformedJSONReturnsError(t *testing.T) {
+func TestGetPaymentsMalformedJSONIsIncomplete(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("not json"))
 	}))
 	defer server.Close()
 	_, err := clientFor(server).GetPayments(context.Background(), "value", nil)
-	if err == nil {
-		t.Fatal("expected a JSON error")
+	if !errors.Is(err, errIncomplete) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestGetPaymentsBadRowShapeIsIncomplete(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[1]`))
+	}))
+	defer server.Close()
+	_, err := clientFor(server).GetPayments(context.Background(), "value", nil)
+	if !errors.Is(err, errIncomplete) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestGetPaymentsNonArrayBodyIsEmpty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"payments":[]}`))
+	}))
+	defer server.Close()
+	result, err := clientFor(server).GetPayments(context.Background(), "value", nil)
+	if err != nil || len(result) != 0 {
+		t.Fatalf("%v %v", result, err)
+	}
+}
+
+func TestGetPaymentsCanceledContextPropagates(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := clientFor(server).GetPayments(ctx, "value", nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestGetPaymentsDeadlineIsIncomplete(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	time.Sleep(time.Millisecond)
+	_, err := clientFor(server).GetPayments(ctx, "value", nil)
+	if !errors.Is(err, errIncomplete) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestNewBrantaClientUsesThirtySecondTimeout(t *testing.T) {
+	client := NewBrantaClient(NewBrantaApiOptions(Localhost))
+	if client.http.Timeout != 30*time.Second {
+		t.Fatalf("%v", client.http.Timeout)
 	}
 }
 

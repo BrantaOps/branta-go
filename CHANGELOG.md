@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.3.0] - 2026-11-12
+
+### Added
+- Multi-rail stablecoin destination types `UsdtEthereum`, `UsdcEthereum`, `UsdtBsc`, `UsdcBsc`, `UsdtTron`, `UsdtTon`, `UsdtSolana`, `UsdcSolana`. `AddPayment` encrypts them with a random secret. `Verify` parses `eth:`, `bsc:`, `tron:`, `ton:`, and `sol:` URIs with `branta_id` / `branta_secret`, match-if-any within the scheme's family. A bare address is `unknown`. Token is on `MatchedDestinations[].Type`, not the URI scheme.
+- Gated `TestStagingSecretKeyRoundTrip` live coverage for every secret-key rail.
+- `public_api_test.go` locks family helpers as unexported.
+
+### Changed
+- **Breaking for 4.2.0 callers:** rail-family lists / `SecretKeyURIFamilies` / `IsSecretKeyAddressType` are unexported (match JS/Python/Dart/Swift/Kotlin/dotnet consumer surface).
+- Malformed GET JSON / bad payment rows map to `incomplete` (not a thrown decode error). Non-array 200 bodies decode as an empty list.
+- Default `http.Client` uses a 30s timeout so hung networks become `incomplete` on verify. Caller `context` deadlines also map to `incomplete`; explicit cancel still returns `context.Canceled`.
+
+- `HMACSecret` on `BrantaApiOptions` is deprecated; prefer a shared `APIKey` with `PaymentBuilder.SetChildPlatform`.
+- CI gates line coverage at ≥80%.
+
+### Removed
+- **Breaking for 4.2.0 callers:** `PolygonEvmDestinationTypes` / `IsPolygonEvmDestinationType` (superseded by unexported `secretKeyURIFamilies` / `isSecretKeyAddressType`).
+
+### Notes
+- `usdc_ton` is deferred until a platform names a concrete TON USDC jetton. Matches `@branta-ops/branta` / Python / Dart / Swift / Kotlin / Branta.NET 4.3.0.
+
 ## [4.2.0] - 2026-11-10
 
 ### Added

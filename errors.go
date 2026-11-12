@@ -29,8 +29,8 @@ func (e *RequestFailedError) Error() string {
 }
 
 // UnsupportedDestinationTypeError is returned when AddPayment is asked to
-// encrypt a value that is not a bitcoin address, bolt11, Ark address, or
-// silent payment.
+// encrypt a value that is not a supported DestinationType (bitcoin, bolt11,
+// Ark, silent payment, or a stablecoin rail).
 type UnsupportedDestinationTypeError struct {
 	Type DestinationType
 }
