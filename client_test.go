@@ -153,6 +153,20 @@ func TestGetPaymentsCanceledContextPropagates(t *testing.T) {
 	}
 }
 
+func TestGetPaymentsDeadlineIsIncomplete(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	time.Sleep(time.Millisecond)
+	_, err := clientFor(server).GetPayments(ctx, "value", nil)
+	if !errors.Is(err, errIncomplete) {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestNewBrantaClientUsesThirtySecondTimeout(t *testing.T) {
 	client := NewBrantaClient(NewBrantaApiOptions(Localhost))
 	if client.http.Timeout != 30*time.Second {

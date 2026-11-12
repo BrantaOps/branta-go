@@ -13,8 +13,9 @@ import (
 //
 // Verify returns a status. A swapped address or a derived-key plaintext that
 // is not the scanned value is VerifyTampered. A 404 is VerifyUnknown. Any
-// other non-OK response, a network failure / timeout, or a malformed GET body
-// is VerifyIncomplete. A logo URL on the wrong origin still returns
+// other non-OK response, a network failure / client timeout / caller
+// deadline, or a malformed GET body is VerifyIncomplete. Explicit context
+// cancel still returns an error. A logo URL on the wrong origin still returns
 // LogoURLDomainMismatchError.
 //
 // AddPayment encrypts a copy. A failed post leaves the caller's Payment plaintext.

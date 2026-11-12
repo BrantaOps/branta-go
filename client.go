@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -126,9 +127,11 @@ func originOf(u *url.URL) string {
 
 // GetPayments looks up payments by destination value.
 // A 404 or an empty body is an empty slice. Any other non-2xx status, a
-// transport failure / timeout, and malformed JSON / a bad row shape are
-// errIncomplete. A logo on the wrong origin still returns LogoURLDomainMismatchError.
-// Non-array 200 bodies decode as an empty list (match JS/Kotlin/Swift).
+// transport failure, http.Client timeout, caller context deadline, and
+// malformed JSON / a bad row shape are errIncomplete. Explicit context
+// cancel still returns context.Canceled. A logo on the wrong origin still
+// returns LogoURLDomainMismatchError. Non-array 200 bodies decode as an
+// empty list (match JS/Kotlin/Swift).
 func (c *BrantaClient) GetPayments(ctx context.Context, destinationValue string, options *BrantaApiOptions) ([]Payment, error) {
 	baseURL := c.baseURL(options)
 	encoded := pathEscape(destinationValue)
@@ -141,7 +144,9 @@ func (c *BrantaClient) GetPayments(ctx context.Context, destinationValue string,
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		if ctx.Err() != nil {
+		// Cancel stays an error. DeadlineExceeded (and client/transport
+		// timeouts) map to Incomplete so Verify surfaces VerifyIncomplete.
+		if errors.Is(ctx.Err(), context.Canceled) {
 			return nil, ctx.Err()
 		}
 		return nil, errIncomplete

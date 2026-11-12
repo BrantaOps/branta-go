@@ -35,7 +35,7 @@ The module path is `github.com/BrantaOps/branta-go/v4`. Tag `v4.3.0` on the rele
 
 ### Key behaviors to preserve
 
-- **`Verify` returns a result.** `match` includes payments, `MatchedDestinations`, and `VerifyURL`. `unknown`, `tampered`, and `incomplete` include only `VerifyURL`. Do not return an error for a swapped address. A 404 is `unknown`. A 5xx, a 429, no network, a timeout, or a malformed GET body is `incomplete`. `LogoURLDomainMismatchError` still returns an error.
+- **`Verify` returns a result.** `match` includes payments, `MatchedDestinations`, and `VerifyURL`. `unknown`, `tampered`, and `incomplete` include only `VerifyURL`. Do not return an error for a swapped address. A 404 is `unknown`. A 5xx, a 429, no network, a transport/client timeout, a caller context deadline, or a malformed GET body is `incomplete`. Explicit context cancel still returns an error. `LogoURLDomainMismatchError` still returns an error.
 - **Unencrypted destinations are not supported.** A raw on-chain address, including testnet `tb1` and `bcrt1`, is `unknown` and does not GET. A bare `0x` is `unknown`. `AddPayment` encrypts every destination. Types that cannot be encrypted return `UnsupportedDestinationTypeError`.
 - **`DestinationType` is only what `AddPayment` accepts:** bitcoin, bolt11, ark, silent payment, and the stablecoin rails (`usdt_polygon` … `usdc_solana`). No `usdc_ton` yet. BIP21 extras this SDK cannot encrypt (`lno`, `pay`, non-bolt11 `lightning`) make `Verify` return `unknown`. They are not destination types.
 - **Encrypt everything.** On-chain Bitcoin needs `branta_id` / `branta_secret`. Stablecoin rails use chain URIs (`pol:`, `eth:`, `bsc:`, `tron:`, `ton:`, `sol:`) with the same secret-key pattern as bitcoin; token is on the destination type / `MatchedDestinations[].Type`, not the URI scheme. bolt11, Ark, and silent payments resolve from the value.
@@ -46,7 +46,7 @@ The module path is `github.com/BrantaOps/branta-go/v4`. Tag `v4.3.0` on the rele
 - **Do not export:** rail-family lists (`secretKeyURIFamilies`, per-family slices) or `isSecretKeyAddressType`. `public_api_test.go` locks those names. Prefer not documenting `Client` / `QRParser` / AES as the integration entry (same package as the rest of the SDK).
 - **`zk: false` skips decrypt.** Missing `zk` also skips. `zk: true` attempts decrypt.
 - **Crypto wire format must match every sibling SDK.** `Encrypt("hello world", "my-secret", true)` == `mPIKHc3ywVlsBHf3Lv2Rwpz2+fKE0kgUePq2m4fPIUidMuGEHVIB`.
-- **Default HTTP timeout is 30s.** No retry logic. Caller context cancellation propagates on GET; client timeouts map to `incomplete`.
+- **Default HTTP timeout is 30s.** No retry logic. Caller context cancel propagates on GET; client timeouts and caller deadlines map to `incomplete`.
 - **Logo check** covers every payment and all six logo fields. It runs on GET. `Verify` does not map that error to a status.
 - **HMAC.** `POST|{base}/v2/payments|{compact json}|{unix ts}` when a secret is set. Prefer shared `APIKey` + `SetChildPlatform`. Header `X-Branta-Integration-Token` stays for live tests.
 

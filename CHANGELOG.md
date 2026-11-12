@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Breaking for 4.2.0 callers:** rail-family lists / `SecretKeyURIFamilies` / `IsSecretKeyAddressType` are unexported (match JS/Python/Dart/Swift/Kotlin/dotnet consumer surface).
 - Malformed GET JSON / bad payment rows map to `incomplete` (not a thrown decode error). Non-array 200 bodies decode as an empty list.
-- Default `http.Client` uses a 30s timeout so hung networks become `incomplete` on verify. Caller context cancellation still propagates.
+- Default `http.Client` uses a 30s timeout so hung networks become `incomplete` on verify. Caller `context` deadlines also map to `incomplete`; explicit cancel still returns `context.Canceled`.
+
 - `HMACSecret` on `BrantaApiOptions` is deprecated; prefer a shared `APIKey` with `PaymentBuilder.SetChildPlatform`.
 - CI gates line coverage at ≥80%.
 

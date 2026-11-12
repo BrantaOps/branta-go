@@ -37,13 +37,14 @@ case branta.VerifyUnknown:
 case branta.VerifyTampered:
     // Destination was altered. Warn. Do not show a verified card.
 case branta.VerifyIncomplete:
-    // 5xx, 429, unreachable, timeout, or malformed lookup. Tell the user.
+    // 5xx, 429, unreachable, transport/client timeout, caller deadline,
+    // or malformed lookup. Tell the user.
 }
 ```
 
 On-chain Bitcoin needs a `bitcoin:` URI with `branta_id` and `branta_secret`. Stablecoin rails need a chain URI (`pol:`, `eth:`, `bsc:`, `tron:`, `ton:`, `sol:`) with the same params — token is on `MatchedDestinations[].Type`, not the scheme. bolt11, Ark, and silent payments resolve from the value. A bare address (including bare `0x`) is `unknown`.
 
-A 404 is `unknown`. 5xx, 429, no network, a timeout, or a malformed GET body is `incomplete`.
+A 404 is `unknown`. 5xx, 429, no network, a transport/client timeout, a caller `context` deadline, or a malformed GET body is `incomplete`. Explicit context cancel still returns an error (not a status).
 
 ## Receive
 
