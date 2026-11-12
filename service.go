@@ -13,8 +13,9 @@ import (
 //
 // Verify returns a status. A swapped address or a derived-key plaintext that
 // is not the scanned value is VerifyTampered. A 404 is VerifyUnknown. Any
-// other non-OK response, and a network failure, is VerifyIncomplete. A logo
-// URL on the wrong origin still returns LogoURLDomainMismatchError.
+// other non-OK response, a network failure / timeout, or a malformed GET body
+// is VerifyIncomplete. A logo URL on the wrong origin still returns
+// LogoURLDomainMismatchError.
 //
 // AddPayment encrypts a copy. A failed post leaves the caller's Payment plaintext.
 type BrantaService struct {
@@ -292,7 +293,7 @@ func (s *BrantaService) AddPayment(ctx context.Context, payment Payment, options
 			}
 		}
 
-		if IsSecretKeyAddressType(destType) {
+		if isSecretKeyAddressType(destType) {
 			ciphertext, err := s.aes.Encrypt(destination.Value, secret, s.secretGenerator.DeterministicNonce())
 			if err != nil {
 				return AddPaymentResult{}, err
@@ -377,7 +378,7 @@ func (s *BrantaService) decryptDestinations(
 		if !payment.Destinations[i].IsEncrypted {
 			continue
 		}
-		if !IsSecretKeyAddressType(payment.Destinations[i].Type) {
+		if !isSecretKeyAddressType(payment.Destinations[i].Type) {
 			continue
 		}
 		// Outside this QR's rail family (e.g. bitcoin when scanning pol:) — leave encrypted.

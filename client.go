@@ -32,9 +32,10 @@ type BrantaClient struct {
 }
 
 // NewBrantaClient constructs a client with the given default options.
+// The HTTP client uses a 30s timeout so hung networks become Incomplete on Verify.
 func NewBrantaClient(defaultOptions BrantaApiOptions) *BrantaClient {
 	return &BrantaClient{
-		http:           &http.Client{},
+		http:           &http.Client{Timeout: 30 * time.Second},
 		defaultOptions: defaultOptions,
 	}
 }
@@ -124,9 +125,10 @@ func originOf(u *url.URL) string {
 }
 
 // GetPayments looks up payments by destination value.
-// A 404 or an empty body is an empty slice. Any other non-2xx status, and a
-// transport failure, is errIncomplete. Malformed JSON and a logo on the wrong
-// origin return an error Verify does not map to a status.
+// A 404 or an empty body is an empty slice. Any other non-2xx status, a
+// transport failure / timeout, and malformed JSON / a bad row shape are
+// errIncomplete. A logo on the wrong origin still returns LogoURLDomainMismatchError.
+// Non-array 200 bodies decode as an empty list (match JS/Kotlin/Swift).
 func (c *BrantaClient) GetPayments(ctx context.Context, destinationValue string, options *BrantaApiOptions) ([]Payment, error) {
 	baseURL := c.baseURL(options)
 	encoded := pathEscape(destinationValue)
@@ -139,6 +141,9 @@ func (c *BrantaClient) GetPayments(ctx context.Context, destinationValue string,
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, errIncomplete
 	}
 	defer resp.Body.Close()
@@ -153,12 +158,24 @@ func (c *BrantaClient) GetPayments(ctx context.Context, destinationValue string,
 	if err != nil {
 		return nil, errIncomplete
 	}
-	if len(body) == 0 {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return []Payment{}, nil
+	}
+	var raw json.RawMessage
+	if err := json.Unmarshal(trimmed, &raw); err != nil {
+		// Malformed JSON — unfinished lookup, not a crash.
+		return nil, errIncomplete
+	}
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || raw[0] != '[' {
+		// Match JS/Kotlin/Swift: non-array 200 bodies decode as an empty list.
 		return []Payment{}, nil
 	}
 	var payments []Payment
-	if err := json.Unmarshal(body, &payments); err != nil {
-		return nil, err
+	if err := json.Unmarshal(raw, &payments); err != nil {
+		// Bad row shape — unfinished lookup, not a crash.
+		return nil, errIncomplete
 	}
 	if err := c.verifyLogoURLs(baseURL, payments); err != nil {
 		return nil, err

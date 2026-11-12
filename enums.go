@@ -44,50 +44,44 @@ const (
 	UsdcSolana     DestinationType = "usdc_solana"
 )
 
-// PolygonEvmDestinationTypes are the Polygon EVM secret-key rails.
-// A pol: URI maps to this family for verify (match-if-any). Token is still
-// the destination type on the payment.
-var PolygonEvmDestinationTypes = []DestinationType{UsdtPolygon, UsdcPolygon}
+// polygonEvmDestinationTypes are the Polygon EVM secret-key rails (pol: URI).
+var polygonEvmDestinationTypes = []DestinationType{UsdtPolygon, UsdcPolygon}
 
-// IsPolygonEvmDestinationType reports whether type is a Polygon EVM rail.
-func IsPolygonEvmDestinationType(t DestinationType) bool {
-	return t == UsdtPolygon || t == UsdcPolygon
-}
+// ethereumEvmDestinationTypes are the Ethereum secret-key rails (eth: URI).
+var ethereumEvmDestinationTypes = []DestinationType{UsdtEthereum, UsdcEthereum}
 
-// EthereumEvmDestinationTypes are the Ethereum secret-key rails (eth: URI).
-var EthereumEvmDestinationTypes = []DestinationType{UsdtEthereum, UsdcEthereum}
+// bscEvmDestinationTypes are the BSC secret-key rails (bsc: URI).
+var bscEvmDestinationTypes = []DestinationType{UsdtBsc, UsdcBsc}
 
-// BscEvmDestinationTypes are the BSC secret-key rails (bsc: URI).
-var BscEvmDestinationTypes = []DestinationType{UsdtBsc, UsdcBsc}
+// tronDestinationTypes are the Tron secret-key rails (tron: URI).
+var tronDestinationTypes = []DestinationType{UsdtTron}
 
-// TronDestinationTypes are the Tron secret-key rails (tron: URI).
-var TronDestinationTypes = []DestinationType{UsdtTron}
+// tonDestinationTypes are the TON secret-key rails (ton: URI).
+var tonDestinationTypes = []DestinationType{UsdtTon}
 
-// TonDestinationTypes are the TON secret-key rails (ton: URI).
-var TonDestinationTypes = []DestinationType{UsdtTon}
+// solanaDestinationTypes are the Solana secret-key rails (sol: URI).
+var solanaDestinationTypes = []DestinationType{UsdtSolana, UsdcSolana}
 
-// SolanaDestinationTypes are the Solana secret-key rails (sol: URI).
-var SolanaDestinationTypes = []DestinationType{UsdtSolana, UsdcSolana}
-
-// SecretKeyURIFamilies maps a lowercase URI scheme to its secret-key
+// secretKeyURIFamilies maps a lowercase URI scheme to its secret-key
 // destination family for verify (match-if-any). Token is the destination type
-// on the payment, not the scheme.
-var SecretKeyURIFamilies = map[string][]DestinationType{
-	"pol":  PolygonEvmDestinationTypes,
-	"eth":  EthereumEvmDestinationTypes,
-	"bsc":  BscEvmDestinationTypes,
-	"tron": TronDestinationTypes,
-	"ton":  TonDestinationTypes,
-	"sol":  SolanaDestinationTypes,
+// on the payment, not the scheme. Unexported — consumers use DestinationType
+// constants and Verify / AddPayment only.
+var secretKeyURIFamilies = map[string][]DestinationType{
+	"pol":  polygonEvmDestinationTypes,
+	"eth":  ethereumEvmDestinationTypes,
+	"bsc":  bscEvmDestinationTypes,
+	"tron": tronDestinationTypes,
+	"ton":  tonDestinationTypes,
+	"sol":  solanaDestinationTypes,
 }
 
-// IsSecretKeyAddressType reports whether type is encrypted with a random
+// isSecretKeyAddressType reports whether type is encrypted with a random
 // branta_secret (not a derived key).
-func IsSecretKeyAddressType(t DestinationType) bool {
+func isSecretKeyAddressType(t DestinationType) bool {
 	if t == BitcoinAddress {
 		return true
 	}
-	for _, family := range SecretKeyURIFamilies {
+	for _, family := range secretKeyURIFamilies {
 		for _, member := range family {
 			if member == t {
 				return true

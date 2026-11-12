@@ -6,7 +6,8 @@ package branta
 type BrantaApiOptions struct {
 	Environment BrantaEnvironment
 	APIKey      string
-	HMACSecret  string
+	// Deprecated: prefer a shared APIKey with PaymentBuilder.SetChildPlatform.
+	HMACSecret string
 }
 
 // NewBrantaApiOptions returns options for environment with no API key or HMAC secret.

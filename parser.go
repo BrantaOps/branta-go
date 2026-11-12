@@ -50,7 +50,7 @@ func NewQRParser(qrText string) QRParser {
 	}
 
 	schemeLower := strings.ToLower(scheme)
-	if family, ok := SecretKeyURIFamilies[schemeLower]; ok {
+	if family, ok := secretKeyURIFamilies[schemeLower]; ok {
 		destValue := extractDestination(text)
 		parser.Destinations = append(parser.Destinations, QRDestination{
 			Value:     destValue,
