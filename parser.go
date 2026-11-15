@@ -8,11 +8,11 @@ import (
 // QRDestination is a single destination parsed from QR text.
 type QRDestination struct {
 	Value string
-	// Type is set when the scheme or payload names a rail (e.g. bitcoin).
-	// Not set for pol: — token comes from the matched payment destination.
+	// Type is set when the scheme or payload names a rail: bitcoin, or an
+	// ERC-681 transfer whose chain id and token contract name one.
 	Type DestinationType
 	// SecretKey is true for a visible address that participates in the
-	// secret-key swap check (bitcoin path / bc / tb, or pol: address).
+	// secret-key swap check (bitcoin path / bc / tb, or an ERC-681 deposit).
 	SecretKey bool
 }
 
@@ -24,13 +24,13 @@ type QRParser struct {
 	Destinations            []QRDestination
 	OnChainEncryptionText   string
 	OnChainEncryptionSecret string
-	// ExpectedSecretKeyTypes is the rail family verify may bind for this QR's
-	// scheme (match-if-any). Set from the URI scheme — not from a token stamped
-	// on the address.
+	// ExpectedSecretKeyTypes are the destination types this scan may decrypt.
+	// ERC-681 sets one type from the chain id and token contract. Bitcoin sets
+	// BitcoinAddress.
 	ExpectedSecretKeyTypes []DestinationType
 	// HasUnverifiableInstruction is true when the QR carries a payable
 	// instruction this SDK cannot bind to a decrypted destination. That is any
-	// value other than a bitcoin address, a chain-scheme address (pol:, eth:, ...), or a derived key
+	// value other than a bitcoin address, an ERC-681 token transfer, or a derived key
 	// (bolt11, Ark, or silent payment), including bolt12, lno, and pay.
 	HasUnverifiableInstruction bool
 }
@@ -50,13 +50,18 @@ func NewQRParser(qrText string) QRParser {
 	}
 
 	schemeLower := strings.ToLower(scheme)
-	if family, ok := secretKeyURIFamilies[schemeLower]; ok {
-		destValue := extractDestination(text)
+	if schemeLower == "ethereum" {
+		destType, address, ok := parseERC681(text)
+		if !ok {
+			parser.Destinations = append(parser.Destinations, QRDestination{Value: text})
+			return parser
+		}
 		parser.Destinations = append(parser.Destinations, QRDestination{
-			Value:     destValue,
+			Value:     address,
+			Type:      destType,
 			SecretKey: true,
 		})
-		parser.ExpectedSecretKeyTypes = append([]DestinationType(nil), family...)
+		parser.ExpectedSecretKeyTypes = []DestinationType{destType}
 		query := parseQuery(extractQuery(text))
 		parser.OnChainEncryptionText = query["branta_id"]
 		parser.OnChainEncryptionSecret = query["branta_secret"]
@@ -191,6 +196,10 @@ func extractDestination(text string) string {
 }
 
 func extractQuery(text string) string {
+	// A "?" after the "#" belongs to the fragment, not the query.
+	if hash := strings.IndexByte(text, '#'); hash >= 0 {
+		text = text[:hash]
+	}
 	_, after, found := strings.Cut(text, ":")
 	if !found {
 		return ""
@@ -278,4 +287,81 @@ func isASCIIAlpha(c byte) bool {
 
 func isASCIIAlphanumeric(c byte) bool {
 	return isASCIIAlpha(c) || (c >= '0' && c <= '9')
+}
+
+// erc681Path returns the path of an ethereum: URI, without scheme, query, or
+// fragment. One leading slash is dropped.
+func erc681Path(text string) string {
+	_, path, _ := strings.Cut(text, ":")
+	if cut := strings.IndexAny(path, "?#"); cut >= 0 {
+		path = path[:cut]
+	}
+	return strings.TrimPrefix(path, "/")
+}
+
+func isASCIIDigit(c byte) bool { return c >= '0' && c <= '9' }
+
+func isASCIIHex(c byte) bool {
+	return isASCIIDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+}
+
+func allASCIIHex(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if !isASCIIHex(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// isEVMAddress is "0x" or "0X" followed by 40 hex digits.
+func isEVMAddress(value string) bool {
+	return len(value) == 42 && value[0] == '0' && (value[1] == 'x' || value[1] == 'X') && allASCIIHex(value[2:])
+}
+
+// parseERC681 reads an ERC-681 token transfer. The chain id and contract select
+// one destination type. The deposit address is the "address" query param.
+func parseERC681(text string) (DestinationType, string, bool) {
+	path := erc681Path(text)
+	at := strings.IndexByte(path, '@')
+	if at < 0 {
+		return "", "", false
+	}
+	contract := path[:at]
+	// The contract prefix is a lowercase "0x", then 40 hex digits.
+	if len(contract) != 42 || contract[:2] != "0x" || !allASCIIHex(contract[2:]) {
+		return "", "", false
+	}
+	const suffix = "/transfer"
+	rest := path[at+1:]
+	if len(rest) <= len(suffix) || !strings.HasSuffix(rest, suffix) {
+		return "", "", false
+	}
+	chain := rest[:len(rest)-len(suffix)]
+	if chain == "" {
+		return "", "", false
+	}
+	for i := 0; i < len(chain); i++ {
+		if !isASCIIDigit(chain[i]) {
+			return "", "", false
+		}
+	}
+	digits := strings.TrimLeft(chain, "0")
+	// No supported chain id has more than 15 digits.
+	if len(digits) > 15 {
+		return "", "", false
+	}
+	var chainID int64
+	for i := 0; i < len(digits); i++ {
+		chainID = chainID*10 + int64(digits[i]-'0')
+	}
+	destType, ok := evmTokenType(chainID, contract)
+	if !ok {
+		return "", "", false
+	}
+	address, ok := parseQuery(extractQuery(text))["address"]
+	if !ok || !isEVMAddress(address) {
+		return "", "", false
+	}
+	return destType, address, true
 }

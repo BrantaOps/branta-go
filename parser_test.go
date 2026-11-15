@@ -1,6 +1,10 @@
 package branta
 
-import "testing"
+import (
+	"strconv"
+	"strings"
+	"testing"
+)
 
 func TestBitcoinURIWithoutQuery(t *testing.T) {
 	p := NewQRParser("bitcoin:1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa")
@@ -262,20 +266,208 @@ func TestLnoAndPayAreUnverifiable(t *testing.T) {
 	}
 }
 
-func TestPolUriIsSecretKeyWithoutTokenType(t *testing.T) {
-	p := NewQRParser("pol:0x278297528c32eCa01295B0d2135984d3442ec963?value=50&branta_id=enc&branta_secret=sec")
+const (
+	baseUsdcContract = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+	erc681Deposit    = "0x1111111111111111111111111111111111111111"
+)
+
+func TestERC681TransferBindsTheDepositAndOneToken(t *testing.T) {
+	p := NewQRParser("ethereum:" + baseUsdcContract + "@8453/transfer?address=" + erc681Deposit +
+		"&uint256=1000000&branta_id=abc%2Bdef%3D&branta_secret=1234")
 	dest, ok := p.Destination()
-	if !ok || dest != "0x278297528c32eCa01295B0d2135984d3442ec963" {
+	if !ok || dest != erc681Deposit {
 		t.Fatal(dest)
 	}
-	if p.DestinationType() != "" || !p.Destinations[0].SecretKey {
-		t.Fatalf("%+v", p.Destinations[0])
+	if p.DestinationType() != UsdcBase || len(p.Destinations) != 1 || !p.Destinations[0].SecretKey {
+		t.Fatalf("%+v", p.Destinations)
 	}
-	if p.OnChainEncryptionText != "enc" || p.OnChainEncryptionSecret != "sec" {
+	if len(p.ExpectedSecretKeyTypes) != 1 || p.ExpectedSecretKeyTypes[0] != UsdcBase {
+		t.Fatalf("%v", p.ExpectedSecretKeyTypes)
+	}
+	if p.OnChainEncryptionText != "abc+def=" || p.OnChainEncryptionSecret != "1234" {
 		t.Fatal(p.OnChainEncryptionText, p.OnChainEncryptionSecret)
 	}
-	if len(p.ExpectedSecretKeyTypes) != 2 || p.ExpectedSecretKeyTypes[0] != UsdtPolygon || p.ExpectedSecretKeyTypes[1] != UsdcPolygon {
-		t.Fatalf("%v", p.ExpectedSecretKeyTypes)
+}
+
+func TestEveryRailBindsTheDepositAndOneType(t *testing.T) {
+	for _, rail := range evmTokenRails {
+		p := NewQRParser("ethereum:" + rail.contract + "@" + strconv.FormatInt(rail.chainID, 10) +
+			"/transfer?address=" + erc681Deposit + "&branta_id=a&branta_secret=b")
+		dest, _ := p.Destination()
+		if dest != erc681Deposit || p.DestinationType() != rail.destType ||
+			len(p.ExpectedSecretKeyTypes) != 1 || p.ExpectedSecretKeyTypes[0] != rail.destType {
+			t.Fatalf("%s: %+v", rail.destType, p)
+		}
+	}
+}
+
+func TestERC681ContractMatchesCaseInsensitively(t *testing.T) {
+	p := NewQRParser("ethereum:" + strings.ToLower(baseUsdcContract) + "@8453/transfer?address=" + erc681Deposit)
+	if p.DestinationType() != UsdcBase {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestERC681Uint256IsNotPartOfTheBinding(t *testing.T) {
+	for _, amount := range []string{"1", "50000000", "999999999999999999999"} {
+		p := NewQRParser("ethereum:" + baseUsdcContract + "@8453/transfer?address=" + erc681Deposit + "&uint256=" + amount)
+		dest, _ := p.Destination()
+		if dest != erc681Deposit || p.DestinationType() != UsdcBase {
+			t.Fatalf("%s: %+v", amount, p)
+		}
+	}
+}
+
+func TestERC681ToleratesOneLeadingSlashAndAnUpperCaseScheme(t *testing.T) {
+	for _, qr := range []string{
+		"ethereum:/" + baseUsdcContract + "@8453/transfer?address=" + erc681Deposit,
+		"ETHEREUM:" + baseUsdcContract + "@8453/transfer?address=" + erc681Deposit,
+	} {
+		if NewQRParser(qr).DestinationType() != UsdcBase {
+			t.Fatal(qr)
+		}
+	}
+}
+
+func TestERC681AcceptsAnUpperCase0XDepositPrefix(t *testing.T) {
+	p := NewQRParser("ethereum:" + baseUsdcContract + "@8453/transfer?address=0X" + erc681Deposit[2:])
+	if p.DestinationType() != UsdcBase {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestERC681FirstAddressParamWins(t *testing.T) {
+	p := NewQRParser("ethereum:" + baseUsdcContract + "@8453/transfer?address=" + erc681Deposit +
+		"&address=0x" + strings.Repeat("f", 40))
+	if dest, _ := p.Destination(); dest != erc681Deposit {
+		t.Fatal(dest)
+	}
+}
+
+func TestERC681PercentEncodedAmpersandStaysInsideBrantaID(t *testing.T) {
+	p := NewQRParser("ethereum:" + baseUsdcContract + "@8453/transfer?address=" + erc681Deposit +
+		"&branta_id=a%26b&branta_secret=s")
+	if p.OnChainEncryptionText != "a&b" || p.OnChainEncryptionSecret != "s" {
+		t.Fatal(p.OnChainEncryptionText, p.OnChainEncryptionSecret)
+	}
+}
+
+func TestERC681ParamsInTheFragmentAreNotRead(t *testing.T) {
+	p := NewQRParser("ethereum:" + baseUsdcContract + "@8453/transfer?address=" + erc681Deposit +
+		"#&branta_id=abc&branta_secret=1234")
+	if p.DestinationType() != UsdcBase || p.OnChainEncryptionText != "" {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestERC681QueryAfterAFragmentIsNotRead(t *testing.T) {
+	p := NewQRParser("ethereum:" + baseUsdcContract + "@8453/transfer#x?address=" + erc681Deposit +
+		"&branta_id=a&branta_secret=b")
+	if p.DestinationType() != "" || p.OnChainEncryptionText != "" || len(p.ExpectedSecretKeyTypes) != 0 {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestERC681FragmentAfterTheQueryIsDropped(t *testing.T) {
+	p := NewQRParser("ethereum:" + baseUsdcContract + "@8453/transfer?address=" + erc681Deposit +
+		"&branta_id=a&branta_secret=b#address=0x2")
+	dest, _ := p.Destination()
+	if dest != erc681Deposit || p.OnChainEncryptionText != "a" || p.OnChainEncryptionSecret != "b" {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestBitcoinFragmentDoesNotBleedIntoTheQuery(t *testing.T) {
+	if p := NewQRParser("bitcoin:bc1qtest#x?branta_id=a&branta_secret=b"); p.OnChainEncryptionText != "" {
+		t.Fatalf("%+v", p)
+	}
+	if p := NewQRParser("bitcoin:bc1qtest?branta_id=a&branta_secret=b#frag"); p.OnChainEncryptionSecret != "b" {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestERC681ChainIDBeyond15DigitsIsUntyped(t *testing.T) {
+	p := NewQRParser("ethereum:" + baseUsdcContract + "@" + strings.Repeat("9", 5000) +
+		"/transfer?address=" + erc681Deposit)
+	if p.DestinationType() != "" {
+		t.Fatal("expected untyped")
+	}
+}
+
+func TestERC681LeadingZeroChainIDStillSelectsTheRail(t *testing.T) {
+	p := NewQRParser("ethereum:" + baseUsdcContract + "@" + strings.Repeat("0", 4500) +
+		"8453/transfer?address=" + erc681Deposit)
+	if p.DestinationType() != UsdcBase {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestIncompleteERC681FormsDoNotBind(t *testing.T) {
+	tail := "?address=" + erc681Deposit + "&branta_id=abc&branta_secret=1234"
+	forms := []string{
+		// No chain id.
+		"ethereum:" + baseUsdcContract + "/transfer" + tail,
+		// Payment-request prefix and ENS-style forms.
+		"ethereum:pay-" + baseUsdcContract + "@8453/transfer" + tail,
+		"ethereum:vitalik.eth@8453/transfer" + tail,
+		// // makes the contract an authority, not a path.
+		"ethereum://" + baseUsdcContract + "@8453/transfer" + tail,
+		// Only transfer is a payment. approve and transferFrom are not.
+		"ethereum:" + baseUsdcContract + "@8453/approve" + tail,
+		"ethereum:" + baseUsdcContract + "@8453/transferFrom" + tail,
+		// Path parameters after the function name.
+		"ethereum:" + baseUsdcContract + "@8453/transfer;x=1" + tail,
+		// Chain id forms that are not plain digits.
+		"ethereum:" + baseUsdcContract + "@0x2105/transfer" + tail,
+		"ethereum:" + baseUsdcContract + "@-8453/transfer" + tail,
+		"ethereum:" + baseUsdcContract + "@+8453/transfer" + tail,
+		"ethereum:" + baseUsdcContract + "@/transfer" + tail,
+		// No address, a truncated address, or an ENS recipient.
+		"ethereum:" + baseUsdcContract + "@8453/transfer?branta_id=abc&branta_secret=1234",
+		"ethereum:" + baseUsdcContract + "@8453/transfer?address=0x1234&branta_id=abc&branta_secret=1234",
+		"ethereum:" + baseUsdcContract + "@8453/transfer?address=vitalik.eth&branta_id=abc&branta_secret=1234",
+	}
+	for _, qr := range forms {
+		p := NewQRParser(qr)
+		if p.DestinationType() != "" || len(p.ExpectedSecretKeyTypes) != 0 ||
+			p.OnChainEncryptionText != "" || p.Destinations[0].SecretKey {
+			t.Fatalf("%s: %+v", qr, p)
+		}
+	}
+}
+
+func TestUnknownContractAndWrongChainDoNotBind(t *testing.T) {
+	for _, qr := range []string{
+		"ethereum:0x" + strings.Repeat("2", 40) + "@8453/transfer?address=" + erc681Deposit + "&branta_id=a&branta_secret=b",
+		"ethereum:" + baseUsdcContract + "@1/transfer?address=" + erc681Deposit + "&branta_id=a&branta_secret=b",
+	} {
+		p := NewQRParser(qr)
+		if p.DestinationType() != "" || p.OnChainEncryptionText != "" {
+			t.Fatalf("%s: %+v", qr, p)
+		}
+	}
+}
+
+func TestUnparseableAuthorityIsAnUntypedDestination(t *testing.T) {
+	p := NewQRParser("ethereum://[bad/transfer")
+	if dest, _ := p.Destination(); dest != "ethereum://[bad/transfer" || p.DestinationType() != "" {
+		t.Fatalf("%+v", p)
+	}
+	// Other schemes never fail either. They carry no Branta params.
+	if NewQRParser("bitcoin://[bad").OnChainEncryptionText != "" {
+		t.Fatal("bitcoin")
+	}
+}
+
+func TestRemovedChainSchemesDoNotBind(t *testing.T) {
+	for _, scheme := range []string{"pol", "eth", "bsc", "tron", "ton", "sol"} {
+		text := scheme + ":0x278297528c32eCa01295B0d2135984d3442ec963?value=50&branta_id=abc&branta_secret=1234"
+		p := NewQRParser(text)
+		dest, _ := p.Destination()
+		if dest != text || p.DestinationType() != "" || p.Destinations[0].SecretKey ||
+			len(p.ExpectedSecretKeyTypes) != 0 || p.IsOnChainZk() {
+			t.Fatalf("%s: %+v", scheme, p)
+		}
 	}
 }
 
@@ -348,41 +540,6 @@ func TestDerivedKeyAndBitcoinInstructionsAreVerifiable(t *testing.T) {
 	} {
 		if NewQRParser(qr).HasUnverifiableInstruction {
 			t.Fatalf("expected verifiable: %s", qr)
-		}
-	}
-}
-
-func TestChainSchemesMapToFamilies(t *testing.T) {
-	cases := []struct {
-		scheme  string
-		address string
-		want    []DestinationType
-	}{
-		{"eth", "0xBF5550253939187432Ef4dccE8089765d3DCb47f", []DestinationType{UsdtEthereum, UsdcEthereum}},
-		{"bsc", "0xBF5550253939187432Ef4dccE8089765d3DCb47f", []DestinationType{UsdtBsc, UsdcBsc}},
-		{"tron", "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb", []DestinationType{UsdtTron}},
-		{"ton", "UQBexample", []DestinationType{UsdtTon}},
-		{"sol", "7EqQdEULxWcraVx3mXKFjc84LhCkMGZCkRuDofycyinf", []DestinationType{UsdtSolana, UsdcSolana}},
-	}
-	for _, tc := range cases {
-		p := NewQRParser(tc.scheme + ":" + tc.address + "?value=1&branta_id=enc&branta_secret=sec")
-		dest, ok := p.Destination()
-		if !ok || dest != tc.address {
-			t.Fatalf("%s: %q", tc.scheme, dest)
-		}
-		if p.DestinationType() != "" || !p.Destinations[0].SecretKey {
-			t.Fatalf("%s: %+v", tc.scheme, p.Destinations[0])
-		}
-		if p.OnChainEncryptionText != "enc" || p.OnChainEncryptionSecret != "sec" {
-			t.Fatalf("%s: %q %q", tc.scheme, p.OnChainEncryptionText, p.OnChainEncryptionSecret)
-		}
-		if len(p.ExpectedSecretKeyTypes) != len(tc.want) {
-			t.Fatalf("%s: %v", tc.scheme, p.ExpectedSecretKeyTypes)
-		}
-		for i := range tc.want {
-			if p.ExpectedSecretKeyTypes[i] != tc.want[i] {
-				t.Fatalf("%s: %v", tc.scheme, p.ExpectedSecretKeyTypes)
-			}
 		}
 	}
 }

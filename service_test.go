@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -520,110 +522,156 @@ func TestIsAPIKeyValidPassesThrough(t *testing.T) {
 	}
 }
 
-const usdtPolygonAddr = "0x278297528c32eCa01295B0d2135984d3442ec963"
-const usdcPolygonAddr = "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B"
-const siblingUsdtAddr = "0x2222222222222222222222222222222222222222"
-const swappedPolygonAddr = "0x1111111111111111111111111111111111111111"
+const (
+	usdtPolygonAddr  = "0x278297528c32eCa01295B0d2135984d3442ec963"
+	usdcPolygonAddr  = "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B"
+	siblingUsdtAddr  = "0x2222222222222222222222222222222222222222"
+	swappedEvmAddr   = "0x3333333333333333333333333333333333333333"
+	usdtEthereumAddr = "0xBF5550253939187432Ef4dccE8089765d3DCb47f"
+	usdcEthereumAddr = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+	usdtTronAddr     = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb"
+	usdtTonAddr      = "EQDtFpEwcFAEcRe5mLVh2N6C0y-_tur3BYOM93pEZPw390by"
+	usdcSolanaAddr   = "7EqQdEULxWcraVx3mXKFjc84LhCkMGZCkRuDofycyinf"
+)
 
-func polURI(address, encrypted, secret string) string {
-	return "pol:" + address + "?value=50&user=send&currency=USD&branta_id=" + encrypted + "&branta_secret=" + secret
+func railFor(t *testing.T, destType DestinationType) evmTokenRail {
+	t.Helper()
+	for _, rail := range evmTokenRails {
+		if rail.destType == destType {
+			return rail
+		}
+	}
+	t.Fatalf("no rail for %s", destType)
+	return evmTokenRail{}
 }
 
-func TestPolUsdtMatchIgnoresAmountQuery(t *testing.T) {
-	client := &mockClient{getFn: func(lookup string) ([]Payment, error) {
-		if lookup != "enc-usdt" {
-			t.Fatal(lookup)
+// transferURI builds an ERC-681 transfer URI for one EVM rail, as a wallet would show it.
+func transferURI(t *testing.T, destType DestinationType, address, encrypted, secret string) string {
+	t.Helper()
+	rail := railFor(t, destType)
+	return "ethereum:" + rail.contract + "@" + strconv.FormatInt(rail.chainID, 10) +
+		"/transfer?address=" + address + "&uint256=1000000&branta_id=" + encrypted + "&branta_secret=" + secret
+}
+
+// depositFor returns one mixed-case deposit per rail, so a lowercase scan still
+// differs from the stored text.
+func depositFor(destType DestinationType) string {
+	for i, rail := range evmTokenRails {
+		if rail.destType == destType {
+			hex := strconv.FormatInt(int64(i+1), 16)
+			return "0xAb" + strings.Repeat("1", 38-len(hex)) + hex
 		}
-		return []Payment{{Destinations: []Destination{encDest("cipher-usdt", "zk-usdt", UsdtPolygon)}}}, nil
+	}
+	return ""
+}
+
+// freshClient returns a client that builds a new payment on every GET, so a
+// test can verify twice without sharing mutated destinations.
+func freshClient(dests ...Destination) *mockClient {
+	return &mockClient{getFn: func(string) ([]Payment, error) {
+		return []Payment{{Destinations: append([]Destination(nil), dests...)}}, nil
 	}}
-	aes := &mockAES{decryptFn: func(value, secret string) (string, error) {
-		if value != "cipher-usdt" || secret != "the-secret" {
+}
+
+// decryptTable decrypts a ciphertext to its plaintext when the secret is "the-secret".
+func decryptTable(table map[string]string) *mockAES {
+	return &mockAES{decryptFn: func(value, secret string) (string, error) {
+		plain, ok := table[value]
+		if !ok || secret != "the-secret" {
 			return "", errors.New("wrong key")
 		}
-		return usdtPolygonAddr, nil
+		return plain, nil
 	}}
-	result, err := svc(client, aes, nil).Verify(context.Background(), polURI(usdtPolygonAddr, "enc-usdt", "the-secret"), nil)
-	if err != nil || result.Status != VerifyMatch {
-		t.Fatalf("%+v %v", result, err)
+}
+
+func verifyQR(t *testing.T, client *mockClient, aes *mockAES, qr string) VerifyResult {
+	t.Helper()
+	result, err := svc(client, aes, nil).Verify(context.Background(), qr, nil)
+	if err != nil {
+		t.Fatalf("%.60s: %v", qr, err)
 	}
-	if result.Payments[0].Destinations[0].Type != UsdtPolygon || result.Payments[0].Destinations[0].Value != usdtPolygonAddr {
-		t.Fatalf("%+v", result.Payments[0].Destinations[0])
+	return result
+}
+
+func wantStatus(t *testing.T, result VerifyResult, want VerifyStatus, label string) {
+	t.Helper()
+	if result.Status != want {
+		t.Fatalf("%s: want %s got %s (%+v)", label, want, result.Status, result)
 	}
-	if len(result.MatchedDestinations) != 1 || result.MatchedDestinations[0].Type != UsdtPolygon {
+}
+
+func matchedTypes(result VerifyResult) []DestinationType {
+	var out []DestinationType
+	for _, d := range result.MatchedDestinations {
+		out = append(out, d.Type)
+	}
+	return out
+}
+
+func wantTypes(t *testing.T, got []DestinationType, want ...DestinationType) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("want %v got %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("want %v got %v", want, got)
+		}
+	}
+}
+
+// ---- Polygon
+
+func TestPolygonUsdtMatchIgnoresAmountAndSetsMatchedDestinations(t *testing.T) {
+	client := freshClient(encDest("cipher-usdt", "zk-usdt", UsdtPolygon))
+	aes := decryptTable(map[string]string{"cipher-usdt": usdtPolygonAddr})
+	result := verifyQR(t, client, aes, transferURI(t, UsdtPolygon, usdtPolygonAddr, "enc-usdt", "the-secret"))
+	wantStatus(t, result, VerifyMatch, "match")
+	if len(client.getCalls) != 1 || client.getCalls[0] != "enc-usdt" {
+		t.Fatal(client.getCalls)
+	}
+	dest := result.Payments[0].Destinations[0]
+	if dest.Type != UsdtPolygon || dest.Value != usdtPolygonAddr {
+		t.Fatalf("%+v", dest)
+	}
+	wantTypes(t, matchedTypes(result), UsdtPolygon)
+}
+
+func TestAmountIsNotPartOfTheMatch(t *testing.T) {
+	for _, amount := range []string{"1", "50000000", "999999999999"} {
+		client := freshClient(encDest("cipher-usdt", "zk-usdt", UsdtPolygon))
+		aes := decryptTable(map[string]string{"cipher-usdt": usdtPolygonAddr})
+		qr := strings.Replace(transferURI(t, UsdtPolygon, usdtPolygonAddr, "enc-usdt", "the-secret"), "uint256=1000000", "uint256="+amount, 1)
+		wantStatus(t, verifyQR(t, client, aes, qr), VerifyMatch, amount)
+	}
+}
+
+func TestPolygonUsdtCaseInsensitiveAnd0XPrefixMatch(t *testing.T) {
+	for _, address := range []string{strings.ToLower(usdtPolygonAddr), "0X" + usdtPolygonAddr[2:]} {
+		client := freshClient(encDest("cipher-usdt", "zk-usdt", UsdtPolygon))
+		aes := decryptTable(map[string]string{"cipher-usdt": usdtPolygonAddr})
+		wantStatus(t, verifyQR(t, client, aes, transferURI(t, UsdtPolygon, address, "enc-usdt", "the-secret")), VerifyMatch, address)
+	}
+}
+
+func TestPolygonUsdtSwappedIsTampered(t *testing.T) {
+	client := freshClient(encDest("cipher-usdt", "zk-usdt", UsdtPolygon))
+	aes := decryptTable(map[string]string{"cipher-usdt": usdtPolygonAddr})
+	result := verifyQR(t, client, aes, transferURI(t, UsdtPolygon, swappedEvmAddr, "enc-usdt", "the-secret"))
+	wantStatus(t, result, VerifyTampered, "swapped")
+	if len(result.MatchedDestinations) != 0 {
 		t.Fatalf("%+v", result.MatchedDestinations)
 	}
 }
 
-func TestPolUsdtCaseInsensitiveMatch(t *testing.T) {
-	client := &mockClient{getFn: func(string) ([]Payment, error) {
-		return []Payment{{Destinations: []Destination{encDest("cipher-usdt", "zk-usdt", UsdtPolygon)}}}, nil
-	}}
-	aes := &mockAES{decryptFn: func(string, string) (string, error) { return usdtPolygonAddr, nil }}
-	result, err := svc(client, aes, nil).Verify(context.Background(), polURI(strings.ToLower(usdtPolygonAddr), "enc-usdt", "the-secret"), nil)
-	if err != nil || result.Status != VerifyMatch {
-		t.Fatalf("%+v %v", result, err)
-	}
-}
-
-func TestPolUsdt0xPrefixCaseInsensitiveMatch(t *testing.T) {
-	client := &mockClient{getFn: func(string) ([]Payment, error) {
-		return []Payment{{Destinations: []Destination{encDest("cipher-usdt", "zk-usdt", UsdtPolygon)}}}, nil
-	}}
-	aes := &mockAES{decryptFn: func(string, string) (string, error) { return usdtPolygonAddr, nil }}
-	mixed := "0X" + usdtPolygonAddr[2:]
-	result, err := svc(client, aes, nil).Verify(context.Background(), polURI(mixed, "enc-usdt", "the-secret"), nil)
-	if err != nil || result.Status != VerifyMatch {
-		t.Fatalf("%+v %v", result, err)
-	}
-}
-
-func TestPolUsdtSwappedIsTampered(t *testing.T) {
-	client := &mockClient{getFn: func(string) ([]Payment, error) {
-		return []Payment{{Destinations: []Destination{encDest("cipher-usdt", "zk-usdt", UsdtPolygon)}}}, nil
-	}}
-	aes := &mockAES{decryptFn: func(string, string) (string, error) { return usdtPolygonAddr, nil }}
-	result, err := svc(client, aes, nil).Verify(context.Background(), polURI(swappedPolygonAddr, "enc-usdt", "the-secret"), nil)
-	if err != nil || result.Status != VerifyTampered {
-		t.Fatalf("%+v %v", result, err)
-	}
-}
-
-func TestBareUsdtAddressIsUnknown(t *testing.T) {
-	client := &mockClient{}
-	result, err := svc(client, nil, nil).Verify(context.Background(), usdtPolygonAddr, nil)
-	if err != nil || result.Status != VerifyUnknown || len(client.getCalls) != 0 {
-		t.Fatalf("%+v %v", result, err)
-	}
-}
-
-func TestPolWithoutBrantaParamsIsUnknown(t *testing.T) {
-	client := &mockClient{}
-	result, err := svc(client, nil, nil).Verify(context.Background(), "pol:"+usdtPolygonAddr+"?value=50", nil)
-	if err != nil || result.Status != VerifyUnknown || len(client.getCalls) != 0 {
-		t.Fatalf("%+v %v", result, err)
-	}
-}
-
-func TestPolIgnoresSiblingBitcoinRail(t *testing.T) {
-	client := &mockClient{getFn: func(string) ([]Payment, error) {
-		return []Payment{{Destinations: []Destination{
-			encDest("cipher-btc", "zk-btc", BitcoinAddress),
-			encDest("cipher-usdt", "zk-usdt", UsdtPolygon),
-		}}}, nil
-	}}
-	aes := &mockAES{decryptFn: func(value, secret string) (string, error) {
-		if value == "cipher-usdt" && secret == "the-secret" {
-			return usdtPolygonAddr, nil
-		}
-		if value == "cipher-btc" {
-			return addr, nil
-		}
-		return "", errors.New("no")
-	}}
-	result, err := svc(client, aes, nil).Verify(context.Background(), polURI(usdtPolygonAddr, "enc-usdt", "the-secret"), nil)
-	if err != nil || result.Status != VerifyMatch {
-		t.Fatalf("%+v %v", result, err)
-	}
+func TestPolygonScanIgnoresSiblingBitcoinRail(t *testing.T) {
+	client := freshClient(
+		encDest("cipher-btc", "zk-btc", BitcoinAddress),
+		encDest("cipher-usdt", "zk-usdt", UsdtPolygon),
+	)
+	aes := decryptTable(map[string]string{"cipher-btc": addr, "cipher-usdt": usdtPolygonAddr})
+	result := verifyQR(t, client, aes, transferURI(t, UsdtPolygon, usdtPolygonAddr, "enc-usdt", "the-secret"))
+	wantStatus(t, result, VerifyMatch, "match")
 	dests := result.Payments[0].Destinations
 	if !dests[0].IsEncrypted || dests[0].Type != BitcoinAddress {
 		t.Fatalf("bitcoin should stay encrypted: %+v", dests[0])
@@ -633,27 +681,14 @@ func TestPolIgnoresSiblingBitcoinRail(t *testing.T) {
 	}
 }
 
-func TestBitcoinIgnoresSiblingUsdtRail(t *testing.T) {
-	client := &mockClient{getFn: func(string) ([]Payment, error) {
-		return []Payment{{Destinations: []Destination{
-			encDest("cipher-btc", "zk-btc", BitcoinAddress),
-			encDest("cipher-usdt", "zk-usdt", UsdtPolygon),
-		}}}, nil
-	}}
-	aes := &mockAES{decryptFn: func(value, secret string) (string, error) {
-		if value == "cipher-btc" && secret == "the-secret" {
-			return addr, nil
-		}
-		if value == "cipher-usdt" {
-			return usdtPolygonAddr, nil
-		}
-		return "", errors.New("no")
-	}}
-	qr := "bitcoin:" + addr + "?branta_id=cipher-id&branta_secret=the-secret"
-	result, err := svc(client, aes, nil).Verify(context.Background(), qr, nil)
-	if err != nil || result.Status != VerifyMatch {
-		t.Fatalf("%+v %v", result, err)
-	}
+func TestBitcoinScanIgnoresSiblingUsdtRail(t *testing.T) {
+	client := freshClient(
+		encDest("cipher-btc", "zk-btc", BitcoinAddress),
+		encDest("cipher-usdt", "zk-usdt", UsdtPolygon),
+	)
+	aes := decryptTable(map[string]string{"cipher-btc": addr, "cipher-usdt": usdtPolygonAddr})
+	result := verifyQR(t, client, aes, "bitcoin:"+addr+"?branta_id=cipher-id&branta_secret=the-secret")
+	wantStatus(t, result, VerifyMatch, "match")
 	dests := result.Payments[0].Destinations
 	if dests[0].IsEncrypted || dests[0].Value != addr {
 		t.Fatalf("%+v", dests[0])
@@ -663,176 +698,93 @@ func TestBitcoinIgnoresSiblingUsdtRail(t *testing.T) {
 	}
 }
 
-func TestPolSwappedStillTamperedWithSiblingBitcoin(t *testing.T) {
-	client := &mockClient{getFn: func(string) ([]Payment, error) {
-		return []Payment{{Destinations: []Destination{
-			encDest("cipher-btc", "zk-btc", BitcoinAddress),
-			encDest("cipher-usdt", "zk-usdt", UsdtPolygon),
-		}}}, nil
-	}}
-	aes := &mockAES{decryptFn: func(value, _ string) (string, error) {
-		if value == "cipher-usdt" {
-			return usdtPolygonAddr, nil
-		}
-		return addr, nil
-	}}
-	result, err := svc(client, aes, nil).Verify(context.Background(), polURI(swappedPolygonAddr, "enc-usdt", "the-secret"), nil)
-	if err != nil || result.Status != VerifyTampered {
-		t.Fatalf("%+v %v", result, err)
-	}
+func TestPolygonSwappedIsStillTamperedWithSiblingBitcoin(t *testing.T) {
+	client := freshClient(
+		encDest("cipher-btc", "zk-btc", BitcoinAddress),
+		encDest("cipher-usdt", "zk-usdt", UsdtPolygon),
+	)
+	aes := decryptTable(map[string]string{"cipher-btc": addr, "cipher-usdt": usdtPolygonAddr})
+	wantStatus(t, verifyQR(t, client, aes, transferURI(t, UsdtPolygon, swappedEvmAddr, "enc-usdt", "the-secret")), VerifyTampered, "swapped")
 }
 
-func TestPolMatchIfAnyDualUsdt(t *testing.T) {
-	client := &mockClient{getFn: func(string) ([]Payment, error) {
-		return []Payment{{Destinations: []Destination{
-			encDest("cipher-sib", "zk-sib", UsdtPolygon),
-			encDest("cipher-usdt", "zk-usdt", UsdtPolygon),
-		}}}, nil
-	}}
-	aes := &mockAES{decryptFn: func(value, _ string) (string, error) {
-		if value == "cipher-sib" {
-			return siblingUsdtAddr, nil
-		}
-		return usdtPolygonAddr, nil
-	}}
-	result, err := svc(client, aes, nil).Verify(context.Background(), polURI(usdtPolygonAddr, "enc-usdt", "the-secret"), nil)
-	if err != nil || result.Status != VerifyMatch {
-		t.Fatalf("%+v %v", result, err)
-	}
+func TestASecondUsdtDestinationWithAnotherAddressStaysEncrypted(t *testing.T) {
+	client := freshClient(
+		encDest("cipher-sib", "zk-sib", UsdtPolygon),
+		encDest("cipher-usdt", "zk-usdt", UsdtPolygon),
+	)
+	aes := decryptTable(map[string]string{"cipher-sib": siblingUsdtAddr, "cipher-usdt": usdtPolygonAddr})
+	result := verifyQR(t, client, aes, transferURI(t, UsdtPolygon, usdtPolygonAddr, "enc-usdt", "the-secret"))
+	wantStatus(t, result, VerifyMatch, "match")
 	dests := result.Payments[0].Destinations
 	if !dests[0].IsEncrypted || dests[0].Value != "cipher-sib" {
-		t.Fatalf("sibling should stay encrypted: %+v", dests[0])
+		t.Fatalf("%+v", dests[0])
 	}
 	if dests[1].IsEncrypted || dests[1].Value != usdtPolygonAddr {
 		t.Fatalf("%+v", dests[1])
 	}
 }
 
-func TestPolSwappedTamperedWhenNoPolygonFamilyRailMatches(t *testing.T) {
-	client := &mockClient{getFn: func(string) ([]Payment, error) {
-		return []Payment{{Destinations: []Destination{
-			encDest("cipher-sib", "zk-sib", UsdtPolygon),
-			encDest("cipher-usdt", "zk-usdt", UsdtPolygon),
-		}}}, nil
-	}}
-	aes := &mockAES{decryptFn: func(value, _ string) (string, error) {
-		if value == "cipher-sib" {
-			return siblingUsdtAddr, nil
-		}
-		return usdtPolygonAddr, nil
-	}}
-	result, err := svc(client, aes, nil).Verify(context.Background(), polURI(swappedPolygonAddr, "enc-usdt", "the-secret"), nil)
-	if err != nil || result.Status != VerifyTampered {
-		t.Fatalf("%+v %v", result, err)
-	}
+func TestSwappedIsTamperedWhenNoDestinationOfTheTypeMatches(t *testing.T) {
+	client := freshClient(
+		encDest("cipher-sib", "zk-sib", UsdtPolygon),
+		encDest("cipher-usdt", "zk-usdt", UsdtPolygon),
+	)
+	aes := decryptTable(map[string]string{"cipher-sib": siblingUsdtAddr, "cipher-usdt": usdtPolygonAddr})
+	wantStatus(t, verifyQR(t, client, aes, transferURI(t, UsdtPolygon, swappedEvmAddr, "enc-usdt", "the-secret")), VerifyTampered, "swapped")
 }
 
-func TestPolUsdcMatch(t *testing.T) {
-	client := &mockClient{getFn: func(string) ([]Payment, error) {
-		return []Payment{{Destinations: []Destination{encDest("cipher-usdc", "zk-usdc", UsdcPolygon)}}}, nil
-	}}
-	aes := &mockAES{decryptFn: func(string, string) (string, error) { return usdcPolygonAddr, nil }}
-	result, err := svc(client, aes, nil).Verify(context.Background(), polURI(usdcPolygonAddr, "enc-usdc", "the-secret"), nil)
-	if err != nil || result.Status != VerifyMatch {
-		t.Fatalf("%+v %v", result, err)
-	}
-	if result.MatchedDestinations[0].Type != UsdcPolygon {
-		t.Fatalf("%+v", result.MatchedDestinations)
-	}
+func TestPolygonUsdcMatchAndSwapped(t *testing.T) {
+	aes := decryptTable(map[string]string{"cipher-usdc": usdcPolygonAddr})
+	match := verifyQR(t, freshClient(encDest("cipher-usdc", "zk-usdc", UsdcPolygon)), aes,
+		transferURI(t, UsdcPolygon, usdcPolygonAddr, "enc-usdc", "the-secret"))
+	wantStatus(t, match, VerifyMatch, "match")
+	wantTypes(t, matchedTypes(match), UsdcPolygon)
+	swapped := verifyQR(t, freshClient(encDest("cipher-usdc", "zk-usdc", UsdcPolygon)), aes,
+		transferURI(t, UsdcPolygon, swappedEvmAddr, "enc-usdc", "the-secret"))
+	wantStatus(t, swapped, VerifyTampered, "swapped")
 }
 
-func TestPolUsdcSwappedIsTampered(t *testing.T) {
-	client := &mockClient{getFn: func(string) ([]Payment, error) {
-		return []Payment{{Destinations: []Destination{encDest("cipher-usdc", "zk-usdc", UsdcPolygon)}}}, nil
-	}}
-	aes := &mockAES{decryptFn: func(string, string) (string, error) { return usdcPolygonAddr, nil }}
-	result, err := svc(client, aes, nil).Verify(context.Background(), polURI(swappedPolygonAddr, "enc-usdc", "the-secret"), nil)
-	if err != nil || result.Status != VerifyTampered {
-		t.Fatalf("%+v %v", result, err)
+func TestAScanBindsTheScannedTokenAndLeavesTheOtherEncrypted(t *testing.T) {
+	aes := decryptTable(map[string]string{"cipher-usdt": usdtPolygonAddr, "cipher-usdc": usdcPolygonAddr})
+	cases := []struct {
+		scan       DestinationType
+		address    string
+		boundIndex int
+	}{
+		{UsdtPolygon, usdtPolygonAddr, 0},
+		{UsdcPolygon, usdcPolygonAddr, 1},
 	}
-}
-
-func TestPolBindsUsdtLeavesUsdcEncrypted(t *testing.T) {
-	client := &mockClient{getFn: func(string) ([]Payment, error) {
-		return []Payment{{Destinations: []Destination{
+	for _, tc := range cases {
+		client := freshClient(
 			encDest("cipher-usdt", "zk-usdt", UsdtPolygon),
 			encDest("cipher-usdc", "zk-usdc", UsdcPolygon),
-		}}}, nil
-	}}
-	aes := &mockAES{decryptFn: func(value, _ string) (string, error) {
-		if value == "cipher-usdt" {
-			return usdtPolygonAddr, nil
+		)
+		result := verifyQR(t, client, aes, transferURI(t, tc.scan, tc.address, "enc-scan", "the-secret"))
+		wantStatus(t, result, VerifyMatch, string(tc.scan))
+		for i, d := range result.Payments[0].Destinations {
+			if d.IsEncrypted == (i == tc.boundIndex) {
+				t.Fatalf("%s #%d: %+v", tc.scan, i, d)
+			}
 		}
-		return usdcPolygonAddr, nil
-	}}
-	result, err := svc(client, aes, nil).Verify(context.Background(), polURI(usdtPolygonAddr, "enc-usdt", "the-secret"), nil)
-	if err != nil || result.Status != VerifyMatch {
-		t.Fatalf("%+v %v", result, err)
-	}
-	dests := result.Payments[0].Destinations
-	if dests[0].IsEncrypted || dests[0].Type != UsdtPolygon {
-		t.Fatalf("%+v", dests[0])
-	}
-	if !dests[1].IsEncrypted || dests[1].Type != UsdcPolygon {
-		t.Fatalf("%+v", dests[1])
 	}
 }
 
-func TestPolBindsUsdcLeavesUsdtEncrypted(t *testing.T) {
-	client := &mockClient{getFn: func(string) ([]Payment, error) {
-		return []Payment{{Destinations: []Destination{
+func TestPolygonWrongSecretIsUnknown(t *testing.T) {
+	client := freshClient(encDest("cipher-usdt", "zk-usdt", UsdtPolygon))
+	aes := decryptTable(map[string]string{"cipher-usdt": usdtPolygonAddr})
+	wantStatus(t, verifyQR(t, client, aes, transferURI(t, UsdtPolygon, usdtPolygonAddr, "enc-usdt", "wrong-secret")), VerifyUnknown, "wrong secret")
+}
+
+func TestTheSameAddressUnderTwoTokensBindsOnlyTheScannedToken(t *testing.T) {
+	aes := decryptTable(map[string]string{"cipher-usdt": usdtPolygonAddr, "cipher-usdc": usdtPolygonAddr})
+	for _, scan := range []DestinationType{UsdtPolygon, UsdcPolygon} {
+		client := freshClient(
 			encDest("cipher-usdt", "zk-usdt", UsdtPolygon),
 			encDest("cipher-usdc", "zk-usdc", UsdcPolygon),
-		}}}, nil
-	}}
-	aes := &mockAES{decryptFn: func(value, _ string) (string, error) {
-		if value == "cipher-usdt" {
-			return usdtPolygonAddr, nil
-		}
-		return usdcPolygonAddr, nil
-	}}
-	result, err := svc(client, aes, nil).Verify(context.Background(), polURI(usdcPolygonAddr, "enc-usdc", "the-secret"), nil)
-	if err != nil || result.Status != VerifyMatch {
-		t.Fatalf("%+v %v", result, err)
-	}
-	dests := result.Payments[0].Destinations
-	if !dests[0].IsEncrypted || dests[0].Type != UsdtPolygon {
-		t.Fatalf("%+v", dests[0])
-	}
-	if dests[1].IsEncrypted || dests[1].Type != UsdcPolygon {
-		t.Fatalf("%+v", dests[1])
-	}
-}
-
-func TestPolWrongSecretIsUnknown(t *testing.T) {
-	client := &mockClient{getFn: func(string) ([]Payment, error) {
-		return []Payment{{Destinations: []Destination{encDest("cipher-usdt", "zk-usdt", UsdtPolygon)}}}, nil
-	}}
-	aes := &mockAES{decryptFn: func(string, string) (string, error) {
-		return "", errors.New("wrong key")
-	}}
-	result, err := svc(client, aes, nil).Verify(context.Background(), polURI(usdtPolygonAddr, "enc-usdt", "wrong-secret"), nil)
-	if err != nil || result.Status != VerifyUnknown {
-		t.Fatalf("%+v %v", result, err)
-	}
-}
-
-func TestSameAddressUsdtAndUsdcBothMatch(t *testing.T) {
-	client := &mockClient{getFn: func(string) ([]Payment, error) {
-		return []Payment{{Destinations: []Destination{
-			encDest("cipher-usdt", "zk-usdt", UsdtPolygon),
-			encDest("cipher-usdc", "zk-usdc", UsdcPolygon),
-		}}}, nil
-	}}
-	aes := &mockAES{decryptFn: func(string, string) (string, error) {
-		return usdtPolygonAddr, nil
-	}}
-	result, err := svc(client, aes, nil).Verify(context.Background(), polURI(usdtPolygonAddr, "enc-both", "the-secret"), nil)
-	if err != nil || result.Status != VerifyMatch {
-		t.Fatalf("%+v %v", result, err)
-	}
-	if len(result.MatchedDestinations) != 2 {
-		t.Fatalf("%+v", result.MatchedDestinations)
+		)
+		result := verifyQR(t, client, aes, transferURI(t, scan, usdtPolygonAddr, "enc-both", "the-secret"))
+		wantStatus(t, result, VerifyMatch, string(scan))
+		wantTypes(t, matchedTypes(result), scan)
 	}
 }
 
@@ -876,97 +828,182 @@ func TestAddPaymentBareOxWithoutTypeUnsupported(t *testing.T) {
 	}
 }
 
-const usdtEthereumAddr = "0xBF5550253939187432Ef4dccE8089765d3DCb47f"
-const usdtTronAddr = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb"
-const usdcSolanaAddr = "7EqQdEULxWcraVx3mXKFjc84LhCkMGZCkRuDofycyinf"
+// ---- Every EVM rail
 
-func chainURI(scheme, address, encrypted, secret string) string {
-	return scheme + ":" + address + "?value=50&branta_id=" + encrypted + "&branta_secret=" + secret
+func TestEveryEVMRailMatchesAndReturnsTheScannedType(t *testing.T) {
+	for _, rail := range evmTokenRails {
+		destType := rail.destType
+		address := depositFor(destType)
+		aes := decryptTable(map[string]string{"cipher": address})
+
+		client := freshClient(encDest("cipher", "zk", destType))
+		result := verifyQR(t, client, aes, transferURI(t, destType, address, "enc-"+string(destType), "the-secret"))
+		wantStatus(t, result, VerifyMatch, string(destType))
+		if len(client.getCalls) != 1 || client.getCalls[0] != "enc-"+string(destType) {
+			t.Fatalf("%s: %v", destType, client.getCalls)
+		}
+		wantTypes(t, matchedTypes(result), destType)
+		if result.MatchedDestinations[0].Value != address {
+			t.Fatalf("%s: %+v", destType, result.MatchedDestinations)
+		}
+
+		lower := verifyQR(t, freshClient(encDest("cipher", "zk", destType)), aes,
+			transferURI(t, destType, strings.ToLower(address), "enc", "the-secret"))
+		wantStatus(t, lower, VerifyMatch, string(destType)+" lowercase")
+
+		tampered := verifyQR(t, freshClient(encDest("cipher", "zk", destType)), aes,
+			transferURI(t, destType, swappedEvmAddr, "enc", "the-secret"))
+		wantStatus(t, tampered, VerifyTampered, string(destType)+" swapped")
+		if len(tampered.MatchedDestinations) != 0 {
+			t.Fatalf("%s: %+v", destType, tampered.MatchedDestinations)
+		}
+	}
 }
 
-func verifyChainMatch(t *testing.T, scheme, address string, destType DestinationType) VerifyResult {
-	t.Helper()
-	client := &mockClient{getFn: func(lookup string) ([]Payment, error) {
-		if lookup != "enc-chain" {
-			t.Fatal(lookup)
-		}
-		return []Payment{{Destinations: []Destination{encDest("cipher-chain", "zk-chain", destType)}}}, nil
+func TestEveryEVMRailOnTheWrongChainOrWithoutBrantaParamsIsUnknownWithoutAGet(t *testing.T) {
+	client := &mockClient{getFn: func(string) ([]Payment, error) {
+		t.Fatal("must not GET")
+		return nil, nil
 	}}
-	aes := &mockAES{decryptFn: func(value, secret string) (string, error) {
-		if value != "cipher-chain" || secret != "the-secret" {
-			return "", errors.New("wrong key")
-		}
-		return address, nil
-	}}
-	result, err := svc(client, aes, nil).Verify(context.Background(), chainURI(scheme, address, "enc-chain", "the-secret"), nil)
-	if err != nil || result.Status != VerifyMatch {
-		t.Fatalf("%+v %v", result, err)
+	for _, rail := range evmTokenRails {
+		address := depositFor(rail.destType)
+		wrongChain := verifyQR(t, client, nil,
+			"ethereum:"+rail.contract+"@999999/transfer?address="+address+"&branta_id=enc&branta_secret=the-secret")
+		wantStatus(t, wrongChain, VerifyUnknown, string(rail.destType)+" wrong chain")
+		noParams := verifyQR(t, client, nil,
+			"ethereum:"+rail.contract+"@"+strconv.FormatInt(rail.chainID, 10)+"/transfer?address="+address+"&uint256=1000000")
+		wantStatus(t, noParams, VerifyUnknown, string(rail.destType)+" no params")
 	}
-	if len(result.MatchedDestinations) != 1 ||
-		result.MatchedDestinations[0].Type != destType ||
-		result.MatchedDestinations[0].Value != address {
+}
+
+func TestAnEthereumScanIgnoresASiblingBitcoinRail(t *testing.T) {
+	aes := decryptTable(map[string]string{"cipher-btc": addr, "cipher-usdt": usdtEthereumAddr})
+	dests := []Destination{
+		encDest("cipher-btc", "zk-btc", BitcoinAddress),
+		encDest("cipher-usdt", "zk-usdt", UsdtEthereum),
+	}
+	result := verifyQR(t, freshClient(dests...), aes, transferURI(t, UsdtEthereum, usdtEthereumAddr, "enc-usdt", "the-secret"))
+	wantStatus(t, result, VerifyMatch, "match")
+	if !result.Payments[0].Destinations[0].IsEncrypted {
+		t.Fatal("bitcoin should stay encrypted")
+	}
+	wantTypes(t, matchedTypes(result), UsdtEthereum)
+	swapped := verifyQR(t, freshClient(dests...), aes, transferURI(t, UsdtEthereum, swappedEvmAddr, "enc-usdt", "the-secret"))
+	wantStatus(t, swapped, VerifyTampered, "swapped")
+}
+
+func TestADualTokenPaymentBindsOnlyTheScannedToken(t *testing.T) {
+	aes := decryptTable(map[string]string{"cipher-usdt": usdtEthereumAddr, "cipher-usdc": usdcEthereumAddr})
+	dual := []Destination{
+		encDest("cipher-usdt", "zk-usdt", UsdtEthereum),
+		encDest("cipher-usdc", "zk-usdc", UsdcEthereum),
+	}
+
+	usdt := verifyQR(t, freshClient(dual...), aes, transferURI(t, UsdtEthereum, usdtEthereumAddr, "enc-usdt", "the-secret"))
+	wantStatus(t, usdt, VerifyMatch, "usdt")
+	wantTypes(t, matchedTypes(usdt), UsdtEthereum)
+	if usdt.Payments[0].Destinations[0].IsEncrypted || !usdt.Payments[0].Destinations[1].IsEncrypted {
+		t.Fatalf("%+v", usdt.Payments[0].Destinations)
+	}
+
+	usdc := verifyQR(t, freshClient(dual...), aes, transferURI(t, UsdcEthereum, usdcEthereumAddr, "enc-usdt", "the-secret"))
+	wantStatus(t, usdc, VerifyMatch, "usdc")
+	wantTypes(t, matchedTypes(usdc), UsdcEthereum)
+	if !usdc.Payments[0].Destinations[0].IsEncrypted || usdc.Payments[0].Destinations[1].IsEncrypted {
+		t.Fatalf("%+v", usdc.Payments[0].Destinations)
+	}
+
+	swapped := verifyQR(t, freshClient(dual...), aes, transferURI(t, UsdtEthereum, swappedEvmAddr, "enc-usdt", "the-secret"))
+	wantStatus(t, swapped, VerifyTampered, "swapped")
+}
+
+func TestAUsdcScanAgainstAUsdtOnlyPaymentIsUnknown(t *testing.T) {
+	client := freshClient(encDest("cipher-usdt", "zk-usdt", UsdtEthereum))
+	aes := decryptTable(map[string]string{"cipher-usdt": usdtEthereumAddr})
+	result := verifyQR(t, client, aes, transferURI(t, UsdcEthereum, usdcEthereumAddr, "enc-usdt", "the-secret"))
+	wantStatus(t, result, VerifyUnknown, "usdc vs usdt-only")
+	if len(result.MatchedDestinations) != 0 {
 		t.Fatalf("%+v", result.MatchedDestinations)
 	}
-	return result
 }
 
-func TestEthUsdtMatch(t *testing.T) {
-	verifyChainMatch(t, "eth", usdtEthereumAddr, UsdtEthereum)
-}
-
-func TestTronUsdtMatch(t *testing.T) {
-	verifyChainMatch(t, "tron", usdtTronAddr, UsdtTron)
-}
-
-func TestSolUsdcMatch(t *testing.T) {
-	verifyChainMatch(t, "sol", usdcSolanaAddr, UsdcSolana)
-}
-
-func TestTronSwappedTampered(t *testing.T) {
-	client := &mockClient{getFn: func(string) ([]Payment, error) {
-		return []Payment{{Destinations: []Destination{encDest("cipher-chain", "zk-chain", UsdtTron)}}}, nil
-	}}
-	aes := &mockAES{decryptFn: func(string, string) (string, error) { return usdtTronAddr, nil }}
-	swapped := usdtTronAddr[:len(usdtTronAddr)-1] + "x"
-	result, err := svc(client, aes, nil).Verify(context.Background(), chainURI("tron", swapped, "enc-chain", "the-secret"), nil)
-	if err != nil || result.Status != VerifyTampered {
-		t.Fatalf("%+v %v", result, err)
+func TestAnEthereumScanDoesNotMatchAPolygonOnlyPayment(t *testing.T) {
+	client := freshClient(encDest("cipher-pol", "zk-pol", UsdtPolygon))
+	aes := decryptTable(map[string]string{"cipher-pol": usdtPolygonAddr})
+	result := verifyQR(t, client, aes, transferURI(t, UsdtEthereum, usdtEthereumAddr, "enc-chain", "the-secret"))
+	wantStatus(t, result, VerifyUnknown, "eth vs polygon-only")
+	if len(result.MatchedDestinations) != 0 {
+		t.Fatalf("%+v", result.MatchedDestinations)
 	}
 }
 
-func TestEthSchemeIgnoresPolygonFamilyRail(t *testing.T) {
-	client := &mockClient{getFn: func(string) ([]Payment, error) {
-		return []Payment{{Destinations: []Destination{
-			encDest("cipher-poly", "zk-poly", UsdtPolygon),
-			encDest("cipher-eth", "zk-eth", UsdtEthereum),
-		}}}, nil
-	}}
-	aes := &mockAES{decryptFn: func(value, _ string) (string, error) {
-		if value == "cipher-poly" {
-			return usdtPolygonAddr, nil
-		}
-		return usdtEthereumAddr, nil
-	}}
-	result, err := svc(client, aes, nil).Verify(context.Background(), chainURI("eth", usdtEthereumAddr, "enc-chain", "the-secret"), nil)
-	if err != nil || result.Status != VerifyMatch {
-		t.Fatalf("%+v %v", result, err)
-	}
+func TestAnEthereumScanLeavesAPolygonRailInTheSamePaymentEncrypted(t *testing.T) {
+	client := freshClient(
+		encDest("cipher-pol", "zk-pol", UsdtPolygon),
+		encDest("cipher-eth", "zk-eth", UsdtEthereum),
+	)
+	aes := decryptTable(map[string]string{"cipher-pol": usdtPolygonAddr, "cipher-eth": usdtEthereumAddr})
+	result := verifyQR(t, client, aes, transferURI(t, UsdtEthereum, usdtEthereumAddr, "enc-eth", "the-secret"))
+	wantStatus(t, result, VerifyMatch, "match")
 	dests := result.Payments[0].Destinations
 	if !dests[0].IsEncrypted || dests[1].IsEncrypted || len(result.MatchedDestinations) != 1 {
 		t.Fatalf("%+v", dests)
 	}
 }
 
-func TestBareStablecoinAddressesAreUnknown(t *testing.T) {
-	for _, address := range []string{usdtEthereumAddr, usdtTronAddr, usdcSolanaAddr} {
-		client := &mockClient{getFn: func(string) ([]Payment, error) {
-			t.Fatal("must not GET")
-			return nil, nil
-		}}
-		result, err := svc(client, nil, nil).Verify(context.Background(), address, nil)
-		if err != nil || result.Status != VerifyUnknown {
-			t.Fatalf("%s: %+v %v", address, result, err)
-		}
+// ---- Forms that do not verify
+
+func TestOtherFunctionsAndTheAuthorityFormAreUnknownWithoutAGet(t *testing.T) {
+	client := &mockClient{getFn: func(string) ([]Payment, error) {
+		t.Fatal("must not GET")
+		return nil, nil
+	}}
+	rail := railFor(t, UsdtBase)
+	prefix := "ethereum:" + rail.contract + "@" + strconv.FormatInt(rail.chainID, 10)
+	tail := "?address=" + swappedEvmAddr + "&uint256=1&branta_id=abc&branta_secret=the-secret"
+	for _, qr := range []string{
+		prefix + "/approve" + tail,
+		prefix + "/transferFrom" + tail,
+		prefix + "/transfer;x=1" + tail,
+		"ethereum://" + rail.contract + "@" + strconv.FormatInt(rail.chainID, 10) + "/transfer" + tail,
+	} {
+		wantStatus(t, verifyQR(t, client, nil, qr), VerifyUnknown, qr)
+	}
+}
+
+func TestUnparseableInputIsUnknownAndDoesNotFail(t *testing.T) {
+	client := &mockClient{getFn: func(string) ([]Payment, error) {
+		t.Fatal("must not GET")
+		return nil, nil
+	}}
+	for _, qr := range []string{
+		"ethereum://[bad/transfer",
+		"bitcoin://[bad",
+		"ethereum:0xc2132d05d31c914a87c6611c10748aeb04b58e8f@" + strings.Repeat("9", 5000) +
+			"/transfer?address=" + swappedEvmAddr,
+	} {
+		wantStatus(t, verifyQR(t, client, nil, qr), VerifyUnknown, fmt.Sprintf("%.20s", qr))
+	}
+}
+
+func TestRemovedSchemesAreUnknownWithoutAGetEvenWithValidParams(t *testing.T) {
+	client := &mockClient{getFn: func(string) ([]Payment, error) {
+		t.Fatal("must not GET")
+		return nil, nil
+	}}
+	for _, scheme := range []string{"pol", "eth", "bsc", "tron", "ton", "sol"} {
+		qr := scheme + ":" + usdtPolygonAddr + "?value=50&branta_id=enc-usdt&branta_secret=the-secret"
+		wantStatus(t, verifyQR(t, client, nil, qr), VerifyUnknown, scheme)
+	}
+}
+
+func TestBareChainAddressesAreUnknownWithoutAGet(t *testing.T) {
+	client := &mockClient{getFn: func(string) ([]Payment, error) {
+		t.Fatal("must not GET")
+		return nil, nil
+	}}
+	for _, address := range []string{usdtPolygonAddr, usdtEthereumAddr, usdtTronAddr, usdtTonAddr, usdcSolanaAddr} {
+		wantStatus(t, verifyQR(t, client, nil, address), VerifyUnknown, address)
 	}
 }
 

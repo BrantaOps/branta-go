@@ -24,6 +24,12 @@ func TestFamilyHelpersAreUnexported(t *testing.T) {
 		"SolanaDestinationTypes":      true,
 		"SecretKeyURIFamilies":        true,
 		"IsSecretKeyAddressType":      true,
+		"EvmTokenRails":               true,
+		"EVMTokenRails":               true,
+		"EvmTokenRail":                true,
+		"EVMTokenRail":                true,
+		"EvmTokenType":                true,
+		"EVMTokenType":                true,
 	}
 
 	fset := token.NewFileSet()
@@ -74,6 +80,9 @@ func TestConsumerTypesAreReachable(t *testing.T) {
 	}
 	if string(branta.UsdtTon) != "usdt_ton" {
 		t.Fatal(branta.UsdtTon)
+	}
+	if string(branta.UsdtBase) != "usdt_base" || string(branta.UsdcArbitrum) != "usdc_arbitrum" {
+		t.Fatal(branta.UsdtBase, branta.UsdcArbitrum)
 	}
 	if branta.Staging.URL() != "https://staging.guardrail.branta.pro" {
 		t.Fatal(branta.Staging.URL())

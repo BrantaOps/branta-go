@@ -121,7 +121,7 @@ func (p Payment) MarshalJSON() ([]byte, error) {
 
 // VerifyResult is what Verify returns. Payments and MatchedDestinations are
 // set only for VerifyMatch. MatchedDestinations are the decrypted secret-key
-// or derived-key rails that bound the scan (token for pol: is on Type).
+// or derived-key rails that bound the scan (token is on Type).
 type VerifyResult struct {
 	Status              VerifyStatus
 	Payments            []Payment

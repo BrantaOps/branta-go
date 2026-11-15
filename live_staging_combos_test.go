@@ -9,7 +9,8 @@ import (
 	"github.com/BrantaOps/branta-go/v4"
 )
 
-// Extra live staging POST→GET combinations beyond the dedicated polygon round-trips.
+// Extra live staging POST→GET combinations. Skipped unless
+// BRANTA_RUN_INTEGRATION=1 and BRANTA_API_KEY is set.
 func TestStagingLiveCombos(t *testing.T) {
 	skipLiveWrite(t)
 	svc := service(branta.Staging)
@@ -36,9 +37,25 @@ func TestStagingLiveCombos(t *testing.T) {
 		t.Helper()
 		result, err := svc.Verify(ctx, qr, nil)
 		if err != nil || result.Status != want {
-			t.Fatalf("verify %s: got %+v err=%v want %s", qr, result, err, want)
+			t.Fatalf("verify %.80s: got %+v err=%v want %s", qr, result, err, want)
 		}
 		return result
+	}
+
+	encryptedOf := func(payment branta.Payment, destType branta.DestinationType) string {
+		for _, d := range payment.Destinations {
+			if d.Type == destType {
+				return d.Value
+			}
+		}
+		return ""
+	}
+
+	onlyType := func(t *testing.T, result branta.VerifyResult, want branta.DestinationType) {
+		t.Helper()
+		if len(result.MatchedDestinations) != 1 || result.MatchedDestinations[0].Type != want {
+			t.Fatalf("want only %s: %+v", want, result.MatchedDestinations)
+		}
 	}
 
 	t.Run("bitcoin round-trip match and tamper", func(t *testing.T) {
@@ -47,13 +64,8 @@ func TestStagingLiveCombos(t *testing.T) {
 			SetTTL(120).
 			Build())
 		enc := added.Payment.Destinations[0].Value
-		qr := "bitcoin:" + btc + "?branta_id=" + urlQueryEscape(enc) + "&branta_secret=" + urlQueryEscape(added.Secret)
-		match := mustStatus(t, qr, branta.VerifyMatch)
-		if len(match.MatchedDestinations) != 1 || match.MatchedDestinations[0].Type != branta.BitcoinAddress {
-			t.Fatalf("%+v", match.MatchedDestinations)
-		}
-		tampered := "bitcoin:" + btcSw + "?branta_id=" + urlQueryEscape(enc) + "&branta_secret=" + urlQueryEscape(added.Secret)
-		mustStatus(t, tampered, branta.VerifyTampered)
+		onlyType(t, mustStatus(t, bitcoinURI(btc, enc, added.Secret), branta.VerifyMatch), branta.BitcoinAddress)
+		mustStatus(t, bitcoinURI(btcSw, enc, added.Secret), branta.VerifyTampered)
 		mustStatus(t, "bitcoin:"+btc, branta.VerifyUnknown)
 	})
 
@@ -63,79 +75,67 @@ func TestStagingLiveCombos(t *testing.T) {
 			AddDestination(usdc, branta.UsdcPolygon).
 			SetTTL(120).
 			Build())
-		var encUsdt, encUsdc string
-		for _, d := range added.Payment.Destinations {
-			switch d.Type {
-			case branta.UsdtPolygon:
-				encUsdt = d.Value
-			case branta.UsdcPolygon:
-				encUsdc = d.Value
-			}
-		}
-		usdtMatch := mustStatus(t, polRoundTripURI(usdt, encUsdt, added.Secret), branta.VerifyMatch)
-		if len(usdtMatch.MatchedDestinations) != 1 || usdtMatch.MatchedDestinations[0].Type != branta.UsdtPolygon {
-			t.Fatalf("usdt matched: %+v", usdtMatch.MatchedDestinations)
-		}
-		usdcMatch := mustStatus(t, polRoundTripURI(usdc, encUsdc, added.Secret), branta.VerifyMatch)
-		if len(usdcMatch.MatchedDestinations) != 1 || usdcMatch.MatchedDestinations[0].Type != branta.UsdcPolygon {
-			t.Fatalf("usdc matched: %+v", usdcMatch.MatchedDestinations)
-		}
+		encUsdt := encryptedOf(added.Payment, branta.UsdtPolygon)
+		encUsdc := encryptedOf(added.Payment, branta.UsdcPolygon)
+		onlyType(t, mustStatus(t, transferURI(t, branta.UsdtPolygon, usdt, encUsdt, added.Secret), branta.VerifyMatch), branta.UsdtPolygon)
+		onlyType(t, mustStatus(t, transferURI(t, branta.UsdcPolygon, usdc, encUsdc, added.Secret), branta.VerifyMatch), branta.UsdcPolygon)
 	})
 
-	t.Run("usdt+usdc same address both match", func(t *testing.T) {
+	t.Run("same address under two tokens binds only the scanned token", func(t *testing.T) {
 		added := mustAdd(t, branta.NewPaymentBuilder().
 			AddDestination(usdt, branta.UsdtPolygon).
 			AddDestination(usdt, branta.UsdcPolygon).
 			SetTTL(120).
 			Build())
-		enc := added.Payment.Destinations[0].Value
-		match := mustStatus(t, polRoundTripURI(usdt, enc, added.Secret), branta.VerifyMatch)
-		if len(match.MatchedDestinations) != 2 {
-			t.Fatalf("want both rails: %+v", match.MatchedDestinations)
-		}
+		encUsdt := encryptedOf(added.Payment, branta.UsdtPolygon)
+		encUsdc := encryptedOf(added.Payment, branta.UsdcPolygon)
+		onlyType(t, mustStatus(t, transferURI(t, branta.UsdtPolygon, usdt, encUsdt, added.Secret), branta.VerifyMatch), branta.UsdtPolygon)
+		onlyType(t, mustStatus(t, transferURI(t, branta.UsdcPolygon, usdt, encUsdc, added.Secret), branta.VerifyMatch), branta.UsdcPolygon)
+		mustStatus(t, transferURI(t, branta.UsdtPolygon, swap, encUsdt, added.Secret), branta.VerifyTampered)
 	})
 
-	t.Run("bitcoin+usdt sibling rails isolate by scheme", func(t *testing.T) {
+	t.Run("bitcoin+usdt sibling rails isolate by type", func(t *testing.T) {
 		added := mustAdd(t, branta.NewPaymentBuilder().
 			AddDestination(btc, branta.BitcoinAddress).
 			AddDestination(usdt, branta.UsdtPolygon).
 			SetTTL(120).
 			Build())
-		var encBtc, encUsdt string
-		for _, d := range added.Payment.Destinations {
-			switch d.Type {
-			case branta.BitcoinAddress:
-				encBtc = d.Value
-			case branta.UsdtPolygon:
-				encUsdt = d.Value
+		encBtc := encryptedOf(added.Payment, branta.BitcoinAddress)
+		encUsdt := encryptedOf(added.Payment, branta.UsdtPolygon)
+
+		btcMatch := mustStatus(t, bitcoinURI(btc, encBtc, added.Secret), branta.VerifyMatch)
+		onlyType(t, btcMatch, branta.BitcoinAddress)
+		for _, d := range btcMatch.Payments[0].Destinations {
+			if d.Type == branta.UsdtPolygon && !d.IsEncrypted {
+				t.Fatalf("usdt should stay encrypted: %+v", d)
 			}
 		}
-		btcQR := "bitcoin:" + btc + "?branta_id=" + urlQueryEscape(encBtc) + "&branta_secret=" + urlQueryEscape(added.Secret)
-		btcMatch := mustStatus(t, btcQR, branta.VerifyMatch)
-		if len(btcMatch.MatchedDestinations) != 1 || btcMatch.MatchedDestinations[0].Type != branta.BitcoinAddress {
-			t.Fatalf("bitcoin scan: %+v", btcMatch.MatchedDestinations)
+
+		usdtMatch := mustStatus(t, transferURI(t, branta.UsdtPolygon, usdt, encUsdt, added.Secret), branta.VerifyMatch)
+		onlyType(t, usdtMatch, branta.UsdtPolygon)
+		for _, d := range usdtMatch.Payments[0].Destinations {
+			if d.Type == branta.BitcoinAddress && !d.IsEncrypted {
+				t.Fatalf("bitcoin should stay encrypted: %+v", d)
+			}
 		}
-		polMatch := mustStatus(t, polRoundTripURI(usdt, encUsdt, added.Secret), branta.VerifyMatch)
-		if len(polMatch.MatchedDestinations) != 1 || polMatch.MatchedDestinations[0].Type != branta.UsdtPolygon {
-			t.Fatalf("pol scan: %+v", polMatch.MatchedDestinations)
-		}
-		// Swapped pol still tampered even with a valid sibling bitcoin rail on the payment.
-		mustStatus(t, polRoundTripURI(swap, encUsdt, added.Secret), branta.VerifyTampered)
+
+		// A swapped deposit is still tampered with a valid sibling bitcoin rail on the payment.
+		mustStatus(t, transferURI(t, branta.UsdtPolygon, swap, encUsdt, added.Secret), branta.VerifyTampered)
 	})
 
-	t.Run("usdt case-insensitive and wrong secret unknown", func(t *testing.T) {
+	t.Run("usdt case-insensitive, wrong secret, and removed scheme", func(t *testing.T) {
 		added := mustAdd(t, branta.NewPaymentBuilder().
 			AddDestination(usdt, branta.UsdtPolygon).
 			SetTTL(120).
 			Build())
 		enc := added.Payment.Destinations[0].Value
-		mustStatus(t, polRoundTripURI(strings.ToLower(usdt), enc, added.Secret), branta.VerifyMatch)
-		mustStatus(t, polRoundTripURI(usdt, enc, "00000000-0000-0000-0000-000000000000"), branta.VerifyUnknown)
+		mustStatus(t, transferURI(t, branta.UsdtPolygon, strings.ToLower(usdt), enc, added.Secret), branta.VerifyMatch)
+		mustStatus(t, transferURI(t, branta.UsdtPolygon, usdt, enc, "00000000-0000-0000-0000-000000000000"), branta.VerifyUnknown)
 		mustStatus(t, usdt, branta.VerifyUnknown)
-		mustStatus(t, "pol:"+usdt+"?value=50&currency=USD", branta.VerifyUnknown)
+		// The old pol: scheme no longer verifies, even with valid Branta params.
+		q := url.Values{}
+		q.Set("branta_id", enc)
+		q.Set("branta_secret", added.Secret)
+		mustStatus(t, "pol:"+usdt+"?value=50&"+q.Encode(), branta.VerifyUnknown)
 	})
-}
-
-func urlQueryEscape(v string) string {
-	return url.QueryEscape(v)
 }
