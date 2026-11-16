@@ -110,6 +110,25 @@ func TestCrossSDKFixedVectorMatchesPython(t *testing.T) {
 	}
 }
 
+// Derived-key vector, asserted by every Branta SDK. The key is the normalized hash of
+// "LNBC10U1PTestInvoice" and the value is encrypted lowercased. Do not regenerate these
+// from this code.
+func TestDerivedKeyFixedVectorMatchesEverySDK(t *testing.T) {
+	key := "261D7974DC0541402A222AC17973D3FF412878C1C179FCD4D866094D610B4496"
+	expected := "WywBRexAiHTi2mnHK/W1DIN79bF1XVhU3BdC3DWpUsdhs5NMbdyZyzWsdjfuFgIV"
+	ciphertext, err := Encrypt("lnbc10u1ptestinvoice", key, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ciphertext != expected {
+		t.Fatalf("ciphertext mismatch\n got %s\nwant %s", ciphertext, expected)
+	}
+	plaintext, err := Decrypt(expected, key)
+	if err != nil || plaintext != "lnbc10u1ptestinvoice" {
+		t.Fatalf("got %q %v", plaintext, err)
+	}
+}
+
 func TestGuidSecretGenerator(t *testing.T) {
 	g := GuidSecretGenerator{}
 	a, b := g.Generate(), g.Generate()

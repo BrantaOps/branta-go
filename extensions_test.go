@@ -68,6 +68,18 @@ func TestToNormalizedHashIsUppercaseHexOfLowercasedValue(t *testing.T) {
 	}
 }
 
+// Fixed vectors, asserted by every Branta SDK.
+func TestToNormalizedHashFixedVectorMatchesEverySDK(t *testing.T) {
+	const test = "9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08"
+	if got := ToNormalizedHash("TEST"); got != test {
+		t.Fatalf("got %s", got)
+	}
+	const mixed = "261D7974DC0541402A222AC17973D3FF412878C1C179FCD4D866094D610B4496"
+	if got := ToNormalizedHash("LNBC10U1PTestInvoice"); got != mixed {
+		t.Fatalf("got %s", got)
+	}
+}
+
 func TestToNormalizedHashIsCaseInsensitiveOnInput(t *testing.T) {
 	if ToNormalizedHash("TEST") != ToNormalizedHash("test") || ToNormalizedHash("TeSt") != ToNormalizedHash("test") {
 		t.Fatal("case")
