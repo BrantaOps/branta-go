@@ -261,7 +261,7 @@ func TestCombinedBrantaQrSwappedAddressIsTampered(t *testing.T) {
 }
 
 func TestCombinedBrantaQrAttackerLightningIsUnknown(t *testing.T) {
-	// Payment only has bitcoin — attacker bolt11 cannot bind (same as .NET).
+	// Payment only has bitcoin — attacker bolt11 cannot bind (same as the other SDKs).
 	client := &mockClient{getFn: func(string) ([]Payment, error) {
 		return []Payment{{Destinations: []Destination{
 			encDest("cipher-btc", "zk-btc", BitcoinAddress),

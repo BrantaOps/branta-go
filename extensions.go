@@ -41,10 +41,9 @@ func DerivedKeyType(value string) DestinationType {
 	return ""
 }
 
-// ToNormalizedHash returns SHA-256(lowercase(value)) as 64-char uppercase hex,
-// matching .NET's Convert.ToHexString. This is the AES secret for a derived-key
-// destination (bolt11, Ark, or silent payment). A case mismatch here breaks
-// cross-SDK payment lookups.
+// ToNormalizedHash returns SHA-256(lowercase(value)) as 64-char uppercase hex.
+// This is the AES secret for a derived-key destination (bolt11, Ark, or silent
+// payment). A case mismatch here breaks cross-SDK payment lookups.
 func ToNormalizedHash(value string) string {
 	sum := sha256.Sum256([]byte(strings.ToLower(value)))
 	return strings.ToUpper(hex.EncodeToString(sum[:]))

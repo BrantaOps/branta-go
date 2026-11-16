@@ -131,7 +131,7 @@ func originOf(u *url.URL) string {
 // malformed JSON / a bad row shape are errIncomplete. Explicit context
 // cancel still returns context.Canceled. A logo on the wrong origin still
 // returns LogoURLDomainMismatchError. Non-array 200 bodies decode as an
-// empty list (match JS/Kotlin/Swift).
+// empty list (match the other SDKs).
 func (c *BrantaClient) GetPayments(ctx context.Context, destinationValue string, options *BrantaApiOptions) ([]Payment, error) {
 	baseURL := c.baseURL(options)
 	encoded := pathEscape(destinationValue)
@@ -174,7 +174,7 @@ func (c *BrantaClient) GetPayments(ctx context.Context, destinationValue string,
 	}
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || raw[0] != '[' {
-		// Match JS/Kotlin/Swift: non-array 200 bodies decode as an empty list.
+		// Match the other SDKs: non-array 200 bodies decode as an empty list.
 		return []Payment{}, nil
 	}
 	var payments []Payment
@@ -255,7 +255,7 @@ func (c *BrantaClient) IsAPIKeyValid(ctx context.Context, options *BrantaApiOpti
 }
 
 // pathEscape percent-encodes everything except unreserved characters
-// (ALPHA / DIGIT / "-" / "." / "_" / "~"), matching .NET Uri.EscapeDataString.
+// (ALPHA / DIGIT / "-" / "." / "_" / "~"), per RFC 3986.
 // Crucially this encodes `+`, `/`, and `=`, which routinely appear in base64
 // ciphertext lookup values — QueryEscape is the wrong tool here.
 func pathEscape(s string) string {
