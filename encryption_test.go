@@ -95,7 +95,7 @@ func TestMalformedBase64IsADecryptionFailureNotTooShort(t *testing.T) {
 	}
 }
 
-func TestCrossSDKFixedVectorMatchesPython(t *testing.T) {
+func TestCrossSDKFixedVectorMatchesEverySDK(t *testing.T) {
 	expected := "mPIKHc3ywVlsBHf3Lv2Rwpz2+fKE0kgUePq2m4fPIUidMuGEHVIB"
 	ciphertext, err := Encrypt("hello world", "my-secret", true)
 	if err != nil {

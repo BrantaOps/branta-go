@@ -12,7 +12,7 @@ import (
 )
 
 // Consumer-surface lock. Family helpers stay unexported; this fails if they
-// regain exported names. Mirror Kotlin/Swift/dotnet PublicApiTests.
+// regain exported names. Mirrors the other SDKs' public-API tests.
 func TestFamilyHelpersAreUnexported(t *testing.T) {
 	forbidden := map[string]bool{
 		"PolygonEvmDestinationTypes":  true,
