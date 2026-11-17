@@ -382,7 +382,7 @@ func (s *BrantaService) decryptDestinations(
 		if !isSecretKeyAddressType(payment.Destinations[i].Type) {
 			continue
 		}
-		// Outside this QR's rail family (e.g. bitcoin when scanning pol:) — leave encrypted.
+		// Outside this QR's rail family (e.g. bitcoin when scanning an ERC-681 transfer) — leave encrypted.
 		if expectedOnChainTypes != nil {
 			if _, ok := expectedOnChainTypes[payment.Destinations[i].Type]; !ok {
 				continue
@@ -396,7 +396,7 @@ func (s *BrantaService) decryptDestinations(
 			continue
 		}
 		decryptedExpectedRail = true
-		// Match-if-any within the family: a sibling rail with a different address stays encrypted.
+		// A sibling destination of the same type with a different address stays encrypted.
 		if expectedOnChainAddress != "" && !addressesMatch(plaintext, expectedOnChainAddress) {
 			continue
 		}
@@ -412,7 +412,7 @@ func (s *BrantaService) decryptDestinations(
 		}
 		s.tryDecryptMetadata(payment, i, encryptionKey)
 	}
-	// Tampered only when a family rail decrypted and none matched the scanned address.
+	// Tampered only when a destination of the scanned type decrypted and none matched the scanned address.
 	if expectedOnChainAddress != "" && !onChainBound && decryptedExpectedRail {
 		return false, errTampered
 	}
