@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `Verify` no longer accepts `pol:`, `eth:`, `bsc:`, `tron:`, `ton:`, or `sol:`. These return `unknown` without a lookup. Switch EVM stablecoin QR codes to the ERC-681 form above.
 
 ### Notes
-- `AddPayment` still encrypts `UsdtTron`, `UsdtTon`, `UsdtSolana`, and `UsdcSolana`. They have no verify URI. Matches `@branta-ops/branta` 4.4.0.
+- `AddPayment` still encrypts `UsdtTron`, `UsdtTon`, `UsdtSolana`, and `UsdcSolana`. They have no verify URI.
 
 ## [4.3.0] - 2026-11-12
 
@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `public_api_test.go` locks family helpers as unexported.
 
 ### Changed
-- **Breaking for 4.2.0 callers:** rail-family lists / `SecretKeyURIFamilies` / `IsSecretKeyAddressType` are unexported (match JS/Python/Dart/Swift/Kotlin/dotnet consumer surface).
+- **Breaking for 4.2.0 callers:** rail-family lists / `SecretKeyURIFamilies` / `IsSecretKeyAddressType` are unexported.
 - Malformed GET JSON / bad payment rows map to `incomplete` (not a thrown decode error). Non-array 200 bodies decode as an empty list.
 - Default `http.Client` uses a 30s timeout so hung networks become `incomplete` on verify. Caller `context` deadlines also map to `incomplete`; explicit cancel still returns `context.Canceled`.
 
@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking for 4.2.0 callers:** `PolygonEvmDestinationTypes` / `IsPolygonEvmDestinationType` (superseded by unexported `secretKeyURIFamilies` / `isSecretKeyAddressType`).
 
 ### Notes
-- `usdc_ton` is deferred until a platform names a concrete TON USDC jetton. Matches `@branta-ops/branta` / Python / Dart / Swift / Kotlin / Branta.NET 4.3.0.
+- `usdc_ton` is deferred until a platform names a concrete TON USDC jetton.
 
 ## [4.2.0] - 2026-11-10
 
@@ -56,7 +56,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Verify` of a `pol:` URI binds any Polygon EVM family member whose decrypted address matches (match-if-any).
 - `pol:` parsing no longer stamps a token `DestinationType` on the QR address. The scheme maps to the Polygon EVM family for verify; the token still comes from the matched payment destination.
 - `Verify` swap-checks only the secret-key rail family that matches the QR scheme, so a payment with both bitcoin and `usdt_polygon` no longer returns `tampered` for a valid single-rail QR.
-- This release matches `@branta-ops/branta` / Branta.NET 4.2.0.
 
 ## [4.0.0] - 2026-11-02
 
@@ -84,7 +83,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - `SetDescription` writes `metadata.description`. The SDK does not POST or GET Guardrail plaintext `description`. After metadata decrypt, `Payment.Description` is lifted from `metadata.description`.
-- This release matches `@branta-ops/branta` 4.0.5.
 
 ## [1.0.3] - 2026-10-29
 
