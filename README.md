@@ -1,6 +1,6 @@
 # Branta Go SDK
 
-Go SDK for the [Branta](https://developer.branta.pro) V2 API.
+Go SDK for [Branta](https://developer.branta.pro).
 
 Status handling and parent platforms are in the [developer docs](https://developer.branta.pro).
 
