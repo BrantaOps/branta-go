@@ -23,7 +23,7 @@ service := branta.NewBrantaService(branta.BrantaApiOptions{
 
 result, err := service.Verify(ctx, input) // scanned QR or pasted text
 if err != nil {
-    // Logo on the wrong origin. Do not treat this as unknown.
+    // Logo on the wrong origin, or the caller canceled. Do not treat this as unknown.
     return
 }
 
@@ -37,14 +37,11 @@ case branta.VerifyUnknown:
 case branta.VerifyTampered:
     // Destination was altered. Warn. Do not show a verified card.
 case branta.VerifyIncomplete:
-    // 5xx, 429, unreachable, transport/client timeout, caller deadline,
-    // or malformed lookup. Tell the user.
+    // Branta could not complete the check. Tell the user. Do not block send.
 }
 ```
 
 Pass the scanned or pasted text to `Verify`. A Bitcoin or EVM stablecoin lookup needs `branta_id` and `branta_secret` in the URI. bolt11, Ark, and silent payments resolve from the value. A bare address is `unknown`. The full rules are on [Status rules](https://developer.branta.pro/setup/send/status-rules), and supported chains and contracts are on [Destination types](https://developer.branta.pro/destination-types).
-
-A 404 is `unknown`. 5xx, 429, no network, a transport/client timeout, a caller `context` deadline, or a malformed GET body is `incomplete`. Explicit context cancel still returns an error (not a status).
 
 ## Receive
 
