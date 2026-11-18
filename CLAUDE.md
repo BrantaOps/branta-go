@@ -32,17 +32,9 @@ Invariants that break silently. Check them before you change `verify` or `addPay
 
 Single Go package `branta` at module root `github.com/BrantaOps/branta-go/v4`. Do not add a `/v2` subdirectory. That collides with Go module major-version import paths.
 
-- `enums.go`, `options.go`, `errors.go`, `extensions.go`, `models.go` — shared primitives.
 - `service.go` — `BrantaService`. `Verify` and `AddPayment` are the public entry points.
-- `client.go` — raw HTTP client (`BrantaClient`). Do not call it from consumer code.
-- `builder.go` — `PaymentBuilder`.
-- `parser.go` — `QRParser`.
-- `encryption.go` — AES-256-GCM.
-- `secret.go` — `GuidSecretGenerator`.
 - `examples/branta_example` — runnable demo. README samples should stay aligned with it.
-- `integration_test.go` — live production and staging example QR codes, skipped unless `BRANTA_RUN_INTEGRATION=1`. The scheduled workflow runs `Test(Production|Staging)`.
-- `multi_rail_round_trip_test.go` — live write/lookup for every rail (`BRANTA_RUN_INTEGRATION=1` + `BRANTA_API_KEY`).
-- `public_api_test.go` — locks the rail table helpers as unexported.
+- `integration_test.go` — live production and staging example QR codes. The scheduled workflow runs `Test(Production|Staging)`.
 
 ## Build / test
 
