@@ -4,10 +4,6 @@ Go SDK for the [Branta](https://developer.branta.pro) V2 API.
 
 Use `Verify` on send and `AddPayment` on receive. Status handling and parent platforms are in the [developer docs](https://developer.branta.pro).
 
-## Requirements
-
-Go 1.22 or higher.
-
 ## Install
 
 ```bash
@@ -64,19 +60,8 @@ payment := branta.NewPaymentBuilder().
 added, err := service.AddPayment(ctx, payment, nil)
 ```
 
-`AddPayment` encrypts a copy. The caller's `Payment` stays plaintext, so a failed post can be retried with the same value.
-
 Store `added.Secret` with the invoice. Put `branta_id` and `branta_secret` on the invoice QR (`bitcoin:…` or the ERC-681 `ethereum:…` URI). `added.VerifyURL` is the link for the wallet.
 
 ## Destination types
 
 `AddPayment` accepts the types on [Destination types](https://developer.branta.pro/destination-types), and [Encryption](https://developer.branta.pro/setup/receive/encryption) says which key each uses. `UsdtTron`, `UsdtTon`, `UsdtSolana`, and `UsdcSolana` also encrypt and post, but no URI verifies them.
-
-## Development
-
-```bash
-go test ./...
-BRANTA_RUN_INTEGRATION=1 BRANTA_API_KEY=… go test ./... -run MultiRail
-go fmt ./...
-go vet ./...
-```
