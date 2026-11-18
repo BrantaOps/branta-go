@@ -26,8 +26,7 @@ if err != nil {
 switch result.Status {
 case branta.VerifyMatch:
     // Show the card for result.Payments[0]. Link it to result.VerifyURL.
-    // For EVM stablecoins, token is on result.MatchedDestinations[i].Type
-    // (e.g. UsdcBase). Pay from that list.
+    // For EVM stablecoins, token is on result.MatchedDestinations[i].Type. Pay from that list.
 case branta.VerifyUnknown:
     // Not in Branta. Show nothing.
 case branta.VerifyTampered:
