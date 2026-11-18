@@ -1,6 +1,6 @@
 # Branta Go SDK
 
-Go SDK at `github.com/BrantaOps/branta-go/v4`. Consumers (wallets, platforms, parent platforms) call `BrantaService` to look up or post payments to Branta's V2 API. `README.md` is the install, constructor, and samples guide.
+Go SDK at `github.com/BrantaOps/branta-go/v4`. Consumers (wallets, platforms, parent platforms) call `BrantaService` to look up or post payments to Branta. `README.md` is the install, constructor, and samples guide.
 
 ## Behavior contract
 
