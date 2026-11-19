@@ -6,7 +6,9 @@ package branta
 type BrantaApiOptions struct {
 	Environment BrantaEnvironment
 	APIKey      string
-	// Deprecated: prefer a shared APIKey with PaymentBuilder.SetChildPlatform.
+	// HMACSecret is the Secret from the Secrets tab in Guardrail. It signs POST /v2/payments
+	// with X-HMAC-Signature and X-HMAC-Timestamp. Needed when your platform has Require HMAC on.
+	// Server-side only. See https://developer.branta.pro/setup/receive/hmac-signing
 	HMACSecret string
 }
 
