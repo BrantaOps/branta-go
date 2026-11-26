@@ -16,6 +16,14 @@ import (
 	"time"
 )
 
+// sdkVersion is this SDK's released version, sent as `X-Branta-SDK: go/<sdkVersion>`
+// on the payment POST. Go has no version file, so it must be updated at release
+// time to match the `vX.Y.Z` git tag (without the `v`).
+const sdkVersion = "4.4.0"
+
+// sdkHeaderValue is the value of the X-Branta-SDK header.
+const sdkHeaderValue = "go/" + sdkVersion
+
 // Client is the raw HTTP layer. Consumers should never call this directly —
 // go through BrantaService.
 type Client interface {
@@ -206,6 +214,7 @@ func (c *BrantaClient) PostPayment(ctx context.Context, payment Payment, options
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("X-Branta-SDK", sdkHeaderValue)
 	if signature, timestamp, ok := c.hmacHeaders(baseURL, string(jsonBody), options); ok {
 		req.Header.Set("X-HMAC-Signature", signature)
 		req.Header.Set("X-HMAC-Timestamp", timestamp)

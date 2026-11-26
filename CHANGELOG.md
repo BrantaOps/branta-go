@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- `POST /v2/payments` now sends an `X-Branta-SDK` header (language and SDK version). GETs are unchanged.
 - `HMACSecret` on `BrantaApiOptions` is no longer marked `Deprecated`. Platforms with Require HMAC on need it to sign `AddPayment`. Only the per-client parent-platform flow is deprecated; a shared `APIKey` with `SetChildPlatform` replaces it.
 
 ### Documentation
