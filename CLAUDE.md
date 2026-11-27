@@ -13,6 +13,7 @@ Invariants that break silently. Check them before you change `verify` or `addPay
 - The token is `matchedDestinations[].type`, never the URI scheme.
 - A logo-domain mismatch throws. Every other lookup failure is a status.
 - `addPayment` encrypts a copy and leaves the caller's `Payment` unchanged.
+- The payment POST sends `X-Branta-SDK: <language>/<version>`. A GET never does. [SDK header](https://developer.branta.pro/tech/api/receive#sdk-header)
 - Keep parity with every 4.x Branta SDK. A public method added or changed here is mirrored in each of them.
 
 ## Go specifics
@@ -45,7 +46,7 @@ Single Go package `branta` at module root `github.com/BrantaOps/branta-go/v4`. D
 - Format: `go fmt ./...`
 - Vet: `go vet ./...`
 
-Release: tag `vX.Y.Z` on the release commit and push the tag. `go get github.com/BrantaOps/branta-go` (without `/v4`) stays on `v1.0.3`.
+Release: set `sdkVersion` in `client.go` to the new version (no `v`), then tag `vX.Y.Z` on the release commit and push the tag. Nothing checks `sdkVersion` against the tag, so do not skip this. `go get github.com/BrantaOps/branta-go` (without `/v4`) stays on `v1.0.3`.
 
 ## Conventions
 

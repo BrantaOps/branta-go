@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -296,6 +297,59 @@ func TestPostPaymentSendsBearerHeader(t *testing.T) {
 	c.baseURLOverride = server.URL
 	if _, err := c.PostPayment(context.Background(), Payment{}, nil); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSDKVersionIsSemver(t *testing.T) {
+	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(sdkVersion) {
+		t.Fatalf("sdkVersion %q is not x.y.z", sdkVersion)
+	}
+}
+
+func TestPostPaymentSendsSDKHeader(t *testing.T) {
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("X-Branta-SDK")
+		_ = json.NewEncoder(w).Encode(Payment{})
+	}))
+	defer server.Close()
+	opts := NewBrantaApiOptions(Localhost)
+	opts.APIKey = "test-key"
+	c := NewBrantaClient(opts)
+	c.baseURLOverride = server.URL
+	if _, err := c.PostPayment(context.Background(), Payment{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if want := "go/" + sdkVersion; got != want {
+		t.Fatalf("X-Branta-SDK %q, want %q", got, want)
+	}
+}
+
+func TestGetRequestsOmitSDKHeader(t *testing.T) {
+	var present []bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, ok := r.Header["X-Branta-Sdk"]
+		present = append(present, ok)
+		_, _ = w.Write([]byte("[]"))
+	}))
+	defer server.Close()
+	opts := NewBrantaApiOptions(Localhost)
+	opts.APIKey = "test-key"
+	c := NewBrantaClient(opts)
+	c.baseURLOverride = server.URL
+	if _, err := c.GetPayments(context.Background(), "value", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.IsAPIKeyValid(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(present) != 2 {
+		t.Fatalf("requests %d", len(present))
+	}
+	for i, p := range present {
+		if p {
+			t.Fatalf("request %d carried X-Branta-SDK", i)
+		}
 	}
 }
 
