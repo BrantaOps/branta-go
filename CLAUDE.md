@@ -25,7 +25,8 @@ Invariants that break silently. Check them before you change `verify` or `addPay
 - `VerifyURL` fragment names and values use the `encodeURIComponent` set. An empty fragment is `""`. The path segment stays `pathEscape` (unreserved ALPHA / DIGIT / `-._~` only), so `+`, `/`, and `=` in ciphertext are encoded.
 - `DestinationType` is only what `AddPayment` accepts. It also includes `usdt_tron`, `usdt_ton`, `usdt_solana`, and `usdc_solana`. They can be posted but no URI verifies them, and they are not on the public Destination types page. There is no `usdc_ton`.
 - Default HTTP timeout is 30s. No retry logic.
-- HMAC signs `POST|{base}/v2/payments|{compact json}|{unix ts}` when a secret is set. Platforms with Require HMAC on need it. For parent platforms, a shared `APIKey` plus `SetChildPlatform` replaces the deprecated per-client HMAC flow. The `X-Branta-Integration-Token` header stays for live tests.
+- HMAC signs `POST|{base}/v2/payments|{compact json}|{unix ts}` when a secret is set. Platforms with Require HMAC on need it. For parent platforms, a shared `APIKey` plus `SetBrand` replaces the deprecated per-client HMAC flow. The `X-Branta-Integration-Token` header stays for live tests.
+- `SetBrand` tags a payment with its brand, and the wire field is `brand`. `SetChildPlatform` and `Payment.ChildPlatform` stay only as deprecated aliases (`SetChildPlatform` delegates to `SetBrand`; the effective brand is `Brand`, else `ChildPlatform`). Never send `child_platform`. Parsing accepts `brand` or `child_platform` (`brand` wins) and sets both fields.
 - Context stays the first argument. `BrantaApiOptions` is the constructor argument and the per-call override (`Environment`, `APIKey`; `HMACSecret` for platforms with Require HMAC).
 - Do not reintroduce `PrivacyMode`, `GetPayments`, `GetPaymentsByQRCode`, `BrantaClientOptions`, `DefaultAPIKey`, `SetZk`, `Destination.ZkID`, `Payment.DefaultValue`, or `btc_pay_server_plugin_version`.
 

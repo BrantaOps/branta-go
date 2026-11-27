@@ -117,11 +117,11 @@ func (c *BrantaClient) verifyLogoURLs(baseURL string, payments []Payment) error 
 				return err
 			}
 		}
-		if p.ChildPlatform != nil {
-			if err := check(p.ChildPlatform.LogoURL, "child_platform.logo_url"); err != nil {
+		if brand := p.effectiveBrand(); brand != nil {
+			if err := check(brand.LogoURL, "brand.logo_url"); err != nil {
 				return err
 			}
-			if err := check(p.ChildPlatform.LogoLightURL, "child_platform.logo_light_url"); err != nil {
+			if err := check(brand.LogoLightURL, "brand.logo_light_url"); err != nil {
 				return err
 			}
 		}

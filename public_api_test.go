@@ -101,9 +101,19 @@ func TestConsumerTypesAreReachable(t *testing.T) {
 
 	payment := branta.NewPaymentBuilder().
 		AddDestination("bc1qexample", branta.BitcoinAddress).
+		SetBrand("Shop", "https://example.com/logo.png", "https://example.com/logo-light.png").
 		Build()
 	if len(payment.Destinations) != 1 {
 		t.Fatalf("%+v", payment)
+	}
+	var brand *branta.Platform = payment.Brand
+	if brand == nil || brand.Name != "Shop" || payment.ChildPlatform != nil {
+		t.Fatalf("%+v", payment)
+	}
+	//lint:ignore SA1019 the deprecated alias stays on the public surface.
+	deprecated := branta.NewPaymentBuilder().SetChildPlatform("Shop", "", "").Build()
+	if deprecated.Brand == nil || deprecated.Brand.Name != "Shop" {
+		t.Fatalf("%+v", deprecated)
 	}
 
 	verify := branta.VerifyResult{Status: branta.VerifyUnknown, VerifyURL: "https://example/v2/verify/x"}

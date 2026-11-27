@@ -63,7 +63,7 @@ func (d *Destination) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Platform holds branding for a parent or child platform.
+// Platform holds branding for a parent platform or a brand.
 type Platform struct {
 	Name         string `json:"name,omitempty"`
 	LogoURL      string `json:"logo_url,omitempty"`
@@ -75,6 +75,11 @@ type Platform struct {
 // Description is not a plaintext API field. AddPayment folds it into encrypted
 // metadata, and Verify lifts it back after metadata decrypts.
 // ParentPlatform is deserialize-only: set by the server, never sent on a POST.
+// Brand is the payee a shared-key platform tags the payment with. It goes on
+// the wire as `brand`. The effective brand is Brand, else the deprecated
+// ChildPlatform. The SDK never sends `child_platform`. When it parses a
+// payment, it accepts `brand` or `child_platform` (`brand` wins) and sets both
+// fields to the same value.
 // TTL is seconds. Zero is unset and is left off the POST so Guardrail applies
 // its default. A posted 0 is stored for 30 seconds.
 type Payment struct {
@@ -87,11 +92,41 @@ type Payment struct {
 	PlatformLogoURL      string        `json:"platform_logo_url,omitempty"`
 	PlatformLogoLightURL string        `json:"platform_logo_light_url,omitempty"`
 	ParentPlatform       *Platform     `json:"parent_platform,omitempty"`
-	ChildPlatform        *Platform     `json:"child_platform,omitempty"`
-	IsMetadataDecrypted  bool          `json:"-"`
+	Brand                *Platform     `json:"brand,omitempty"`
+	// ChildPlatform is the old name for Brand.
+	//
+	// Deprecated: Use Brand.
+	ChildPlatform       *Platform `json:"child_platform,omitempty"`
+	IsMetadataDecrypted bool      `json:"-"`
 }
 
-// MarshalJSON omits description and parent_platform.
+// effectiveBrand is Brand when set, otherwise the deprecated ChildPlatform.
+func (p Payment) effectiveBrand() *Platform {
+	if p.Brand != nil {
+		return p.Brand
+	}
+	return p.ChildPlatform
+}
+
+// UnmarshalJSON accepts `brand` or the deprecated `child_platform` (`brand`
+// wins) and sets Brand and ChildPlatform to independent copies of the same value.
+func (p *Payment) UnmarshalJSON(data []byte) error {
+	type paymentAlias Payment
+	var raw paymentAlias
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*p = Payment(raw)
+	p.Brand, p.ChildPlatform = nil, nil
+	if brand := Payment(raw).effectiveBrand(); brand != nil {
+		b, c := *brand, *brand
+		p.Brand, p.ChildPlatform = &b, &c
+	}
+	return nil
+}
+
+// MarshalJSON omits description and parent_platform. It sends the effective
+// brand as `brand` and never sends `child_platform`.
 func (p Payment) MarshalJSON() ([]byte, error) {
 	type paymentWire struct {
 		Destinations         []Destination `json:"destinations"`
@@ -101,7 +136,7 @@ func (p Payment) MarshalJSON() ([]byte, error) {
 		Platform             string        `json:"platform,omitempty"`
 		PlatformLogoURL      string        `json:"platform_logo_url,omitempty"`
 		PlatformLogoLightURL string        `json:"platform_logo_light_url,omitempty"`
-		ChildPlatform        *Platform     `json:"child_platform,omitempty"`
+		Brand                *Platform     `json:"brand,omitempty"`
 	}
 	dests := p.Destinations
 	if dests == nil {
@@ -115,7 +150,7 @@ func (p Payment) MarshalJSON() ([]byte, error) {
 		Platform:             p.Platform,
 		PlatformLogoURL:      p.PlatformLogoURL,
 		PlatformLogoLightURL: p.PlatformLogoLightURL,
-		ChildPlatform:        p.ChildPlatform,
+		Brand:                p.effectiveBrand(),
 	})
 }
 
