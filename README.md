@@ -59,6 +59,19 @@ added, err := service.AddPayment(ctx, payment, nil)
 
 `AddPayment` accepts the types on [Destination types](https://developer.branta.pro/destination-types). Pass the type for stablecoins. A bare address is not auto-detected. `UsdtTron`, `UsdtTon`, `UsdtSolana`, and `UsdcSolana` also encrypt and post, but no URI verifies them.
 
+### Brand
+
+A platform on a shared `APIKey` tags each payment with the brand it is for: a name and optional logo URLs. The SDK sends it as `brand`.
+
+```go
+payment := branta.NewPaymentBuilder().
+    AddDestination("bc1q…", branta.BitcoinAddress).
+    SetBrand("Acme Shop", "https://example.com/logo.png", "https://example.com/logo-light.png").
+    Build()
+```
+
+`SetChildPlatform` and `Payment.ChildPlatform` are the deprecated old names. They still work: `SetChildPlatform` calls `SetBrand`, and a `ChildPlatform` set directly is sent as `brand`. Parsed payments set both `Brand` and `ChildPlatform`. This needs a Branta server that accepts `brand`.
+
 ### HMAC signing
 
 If Branta enabled Require HMAC on your platform, create a Secret in Guardrail and set it as `HMACSecret`. The service signs each `AddPayment`. Keep it server-side. See [HMAC signing](https://developer.branta.pro/setup/receive/hmac-signing).

@@ -228,29 +228,28 @@ func TestGetPaymentsCatchesMismatchedParentPlatformLogoLightURL(t *testing.T) {
 	}
 }
 
-func TestGetPaymentsCatchesMismatchedChildPlatformLogoURL(t *testing.T) {
-	body, _ := json.Marshal([]Payment{{ChildPlatform: &Platform{LogoURL: "https://evil.example.com/logo.png"}}})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write(body)
-	}))
-	defer server.Close()
-	_, err := clientFor(server).GetPayments(context.Background(), "value", nil)
-	var mismatch *LogoURLDomainMismatchError
-	if !errors.As(err, &mismatch) {
-		t.Fatalf("got %v", err)
+func TestGetPaymentsCatchesMismatchedBrandLogoURLs(t *testing.T) {
+	cases := map[string]struct {
+		body  string
+		field string
+	}{
+		"brand logo_url":       {`[{"brand": {"logo_url": "https://evil.example.com/logo.png"}}]`, "brand.logo_url"},
+		"brand logo_light_url": {`[{"brand": {"logo_light_url": "https://evil.example.com/logo-light.png"}}]`, "brand.logo_light_url"},
+		"child_platform alias": {`[{"child_platform": {"logo_url": "https://evil.example.com/logo.png"}}]`, "brand.logo_url"},
 	}
-}
-
-func TestGetPaymentsCatchesMismatchedChildPlatformLogoLightURL(t *testing.T) {
-	body, _ := json.Marshal([]Payment{{ChildPlatform: &Platform{LogoLightURL: "https://evil.example.com/logo-light.png"}}})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write(body)
-	}))
-	defer server.Close()
-	_, err := clientFor(server).GetPayments(context.Background(), "value", nil)
-	var mismatch *LogoURLDomainMismatchError
-	if !errors.As(err, &mismatch) {
-		t.Fatalf("got %v", err)
+	for name, tc := range cases {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(tc.body))
+		}))
+		_, err := clientFor(server).GetPayments(context.Background(), "value", nil)
+		server.Close()
+		var mismatch *LogoURLDomainMismatchError
+		if !errors.As(err, &mismatch) {
+			t.Fatalf("%s: got %v", name, err)
+		}
+		if mismatch.Field != tc.field {
+			t.Fatalf("%s: field %q, want %q", name, mismatch.Field, tc.field)
+		}
 	}
 }
 
@@ -271,6 +270,9 @@ func TestGetPaymentsPassesWhenLogosMatchOrAreAbsent(t *testing.T) {
 			"parent_platform":         map[string]string{"logo_url": matching, "logo_light_url": matchingLight},
 			"child_platform":          map[string]string{"logo_url": matching, "logo_light_url": matchingLight},
 		},
+		{
+			"brand": map[string]string{"logo_url": matching, "logo_light_url": matchingLight},
+		},
 	}
 	body, _ = json.Marshal(payload)
 
@@ -278,7 +280,7 @@ func TestGetPaymentsPassesWhenLogosMatchOrAreAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result) != 2 {
+	if len(result) != 3 {
 		t.Fatalf("len %d", len(result))
 	}
 }

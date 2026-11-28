@@ -379,6 +379,68 @@ func TestAddPaymentLeavesCallerPlaintext(t *testing.T) {
 	}
 }
 
+func TestAddPaymentLeavesCallerBrandUnchangedAndCopyCarriesBrand(t *testing.T) {
+	cases := map[string]Payment{
+		"brand": NewPaymentBuilder().AddDestination(addr, BitcoinAddress).
+			SetBrand("Shop", "https://example.com/l.png", "").Build(),
+		"deprecated field": {
+			Destinations:  []Destination{NewDestination(addr, BitcoinAddress)},
+			ChildPlatform: &Platform{Name: "Shop", LogoURL: "https://example.com/l.png"},
+		},
+	}
+	for name, payment := range cases {
+		client := &mockClient{}
+		var beforeBrand, beforeChild Platform
+		if payment.Brand != nil {
+			beforeBrand = *payment.Brand
+		}
+		if payment.ChildPlatform != nil {
+			beforeChild = *payment.ChildPlatform
+		}
+		if _, err := svc(client, nil, nil).AddPayment(context.Background(), payment, nil); err != nil {
+			t.Fatal(name, err)
+		}
+		if payment.Brand != nil && *payment.Brand != beforeBrand {
+			t.Fatalf("%s: caller Brand changed: %+v vs %+v", name, *payment.Brand, beforeBrand)
+		}
+		if payment.ChildPlatform != nil && *payment.ChildPlatform != beforeChild {
+			t.Fatalf("%s: caller ChildPlatform changed: %+v vs %+v", name, *payment.ChildPlatform, beforeChild)
+		}
+		if payment.Destinations[0].Value != addr {
+			t.Fatalf("%s: caller destination changed: %+v", name, payment.Destinations[0])
+		}
+		posted := client.posted[0]
+		if posted.Brand == nil || posted.Brand.Name != "Shop" || posted.Brand.LogoURL != "https://example.com/l.png" {
+			t.Fatalf("%s: posted brand %+v", name, posted.Brand)
+		}
+		if posted.Brand == payment.Brand || posted.Brand == payment.ChildPlatform {
+			t.Fatalf("%s: posted brand must be a copy", name)
+		}
+		if posted.ChildPlatform == nil || posted.ChildPlatform == posted.Brand {
+			t.Fatalf("%s: posted deprecated mirror %+v", name, posted.ChildPlatform)
+		}
+		obj := wireObject(t, posted)
+		if _, ok := obj["child_platform"]; ok || obj["brand"] == nil {
+			t.Fatalf("%s: wire %v", name, obj)
+		}
+	}
+}
+
+func TestAddPaymentBrandWinsOverChildPlatform(t *testing.T) {
+	client := &mockClient{}
+	payment := Payment{
+		Destinations:  []Destination{NewDestination(addr, BitcoinAddress)},
+		Brand:         &Platform{Name: "New"},
+		ChildPlatform: &Platform{Name: "Old"},
+	}
+	if _, err := svc(client, nil, nil).AddPayment(context.Background(), payment, nil); err != nil {
+		t.Fatal(err)
+	}
+	if client.posted[0].Brand.Name != "New" || payment.ChildPlatform.Name != "Old" {
+		t.Fatalf("%+v", client.posted[0])
+	}
+}
+
 func TestAddPaymentRetryEncryptsTheOriginalAddress(t *testing.T) {
 	calls := 0
 	client := &mockClient{postFn: func(payment Payment) (*Payment, error) {

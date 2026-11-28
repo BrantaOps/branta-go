@@ -65,16 +65,53 @@ func TestSetPlatformLogoURL(t *testing.T) {
 	}
 }
 
-func TestSetChildPlatform(t *testing.T) {
+func TestSetBrand(t *testing.T) {
 	payment := NewPaymentBuilder().
-		SetChildPlatform("ChildBrand", "https://example.com/logo.png", "https://example.com/logo-light.png").
+		SetBrand("ChildBrand", "https://example.com/logo.png", "https://example.com/logo-light.png").
 		Build()
-	child := payment.ChildPlatform
-	if child == nil || child.Name != "ChildBrand" {
+	brand := payment.Brand
+	if brand == nil || brand.Name != "ChildBrand" {
 		t.Fatal("name")
 	}
-	if child.LogoURL != "https://example.com/logo.png" || child.LogoLightURL != "https://example.com/logo-light.png" {
+	if brand.LogoURL != "https://example.com/logo.png" || brand.LogoLightURL != "https://example.com/logo-light.png" {
 		t.Fatal("logos")
+	}
+	if payment.ChildPlatform != nil {
+		t.Fatal("SetBrand must not write the deprecated field")
+	}
+}
+
+func TestSetBrandWireBody(t *testing.T) {
+	payment := NewPaymentBuilder().
+		AddDestination("bc1q", BitcoinAddress).
+		SetBrand("ChildBrand", "https://example.com/logo.png", "https://example.com/logo-light.png").
+		Build()
+	obj := wireObject(t, payment)
+	brand, ok := obj["brand"].(map[string]any)
+	if !ok || brand["name"] != "ChildBrand" || brand["logo_url"] != "https://example.com/logo.png" || brand["logo_light_url"] != "https://example.com/logo-light.png" {
+		t.Fatalf("got %v", obj)
+	}
+	if _, ok := obj["child_platform"]; ok {
+		t.Fatal("child_platform must never be sent")
+	}
+}
+
+func TestSetChildPlatformDelegatesToSetBrand(t *testing.T) {
+	viaBrand := NewPaymentBuilder().SetBrand("B", "https://example.com/l.png", "").Build()
+	viaChild := NewPaymentBuilder().SetChildPlatform("B", "https://example.com/l.png", "").Build()
+	if viaChild.Brand == nil || *viaChild.Brand != *viaBrand.Brand {
+		t.Fatalf("%+v", viaChild.Brand)
+	}
+	if viaChild.ChildPlatform != nil {
+		t.Fatal("alias must write Brand only")
+	}
+	a, _ := json.Marshal(viaBrand)
+	b, _ := json.Marshal(viaChild)
+	if string(a) != string(b) {
+		t.Fatalf("%s != %s", a, b)
+	}
+	if _, ok := wireObject(t, viaChild)["child_platform"]; ok {
+		t.Fatal("child_platform must never be sent")
 	}
 }
 

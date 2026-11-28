@@ -53,14 +53,21 @@ func (b *PaymentBuilder) SetPlatformLogoURL(platformLogoURL string) *PaymentBuil
 	return b
 }
 
-// SetChildPlatform tags the payment with child-platform branding.
-func (b *PaymentBuilder) SetChildPlatform(name, logoURL, logoLightURL string) *PaymentBuilder {
-	b.payment.ChildPlatform = &Platform{
+// SetBrand tags the payment with the brand (the payee) it is for. It is sent as `brand`.
+func (b *PaymentBuilder) SetBrand(name, logoURL, logoLightURL string) *PaymentBuilder {
+	b.payment.Brand = &Platform{
 		Name:         name,
 		LogoURL:      logoURL,
 		LogoLightURL: logoLightURL,
 	}
 	return b
+}
+
+// SetChildPlatform is the old name for SetBrand and delegates to it.
+//
+// Deprecated: Use SetBrand.
+func (b *PaymentBuilder) SetChildPlatform(name, logoURL, logoLightURL string) *PaymentBuilder {
+	return b.SetBrand(name, logoURL, logoLightURL)
 }
 
 // Build returns the constructed Payment.

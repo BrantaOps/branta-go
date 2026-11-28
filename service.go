@@ -492,9 +492,10 @@ func copyPayment(p Payment) Payment {
 		pp := *p.ParentPlatform
 		out.ParentPlatform = &pp
 	}
-	if p.ChildPlatform != nil {
-		cp := *p.ChildPlatform
-		out.ChildPlatform = &cp
+	out.Brand, out.ChildPlatform = nil, nil
+	if brand := p.effectiveBrand(); brand != nil {
+		b, c := *brand, *brand
+		out.Brand, out.ChildPlatform = &b, &c
 	}
 	return out
 }

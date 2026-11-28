@@ -91,7 +91,7 @@ func TestPaymentWireOmitsDescriptionAndParent(t *testing.T) {
 		PlatformLogoURL:      "https://example.com/logo.png",
 		PlatformLogoLightURL: "https://example.com/logo-light.png",
 		ParentPlatform:       &Platform{Name: "Parent"},
-		ChildPlatform:        &Platform{Name: "Child"},
+		Brand:                &Platform{Name: "Child"},
 		IsMetadataDecrypted:  true,
 	}
 	raw, err := json.Marshal(payment)
@@ -114,9 +114,12 @@ func TestPaymentWireOmitsDescriptionAndParent(t *testing.T) {
 	if _, ok := obj["btc_pay_server_plugin_version"]; ok {
 		t.Fatal("btc pay field must not appear")
 	}
-	child := obj["child_platform"].(map[string]any)
-	if child["name"] != "Child" {
-		t.Fatal("child name")
+	brand := obj["brand"].(map[string]any)
+	if brand["name"] != "Child" {
+		t.Fatal("brand name")
+	}
+	if _, ok := obj["child_platform"]; ok {
+		t.Fatal("child_platform must not appear")
 	}
 	dest := obj["destinations"].([]any)[0].(map[string]any)
 	if dest["zk"] != true {
@@ -151,5 +154,111 @@ func TestPaymentParentPlatformRoundTripsOnDeserialize(t *testing.T) {
 	}
 	if payment.ParentPlatform == nil || payment.ParentPlatform.Name != "Parent" {
 		t.Fatalf("%+v", payment.ParentPlatform)
+	}
+}
+
+func wireObject(t *testing.T, payment Payment) map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(payment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		t.Fatal(err)
+	}
+	return obj
+}
+
+func TestDeprecatedChildPlatformFieldSerializesAsBrand(t *testing.T) {
+	obj := wireObject(t, Payment{ChildPlatform: &Platform{Name: "Old", LogoURL: "https://example.com/l.png"}})
+	brand, ok := obj["brand"].(map[string]any)
+	if !ok || brand["name"] != "Old" || brand["logo_url"] != "https://example.com/l.png" {
+		t.Fatalf("got %v", obj)
+	}
+	if _, ok := brand["logo_light_url"]; ok {
+		t.Fatal("empty logo_light_url must be omitted")
+	}
+	if _, ok := obj["child_platform"]; ok {
+		t.Fatal("child_platform must never be sent")
+	}
+}
+
+func TestBrandWinsOverChildPlatformOnSerialize(t *testing.T) {
+	obj := wireObject(t, Payment{
+		Brand:         &Platform{Name: "New"},
+		ChildPlatform: &Platform{Name: "Old"},
+	})
+	if obj["brand"].(map[string]any)["name"] != "New" {
+		t.Fatalf("got %v", obj)
+	}
+	if _, ok := obj["child_platform"]; ok {
+		t.Fatal("child_platform must never be sent")
+	}
+}
+
+func TestPaymentWithoutBrandOmitsBrandKeys(t *testing.T) {
+	obj := wireObject(t, Payment{})
+	if _, ok := obj["brand"]; ok {
+		t.Fatalf("got %v", obj)
+	}
+	if _, ok := obj["child_platform"]; ok {
+		t.Fatalf("got %v", obj)
+	}
+}
+
+func TestPaymentParsesBrand(t *testing.T) {
+	var payment Payment
+	if err := json.Unmarshal([]byte(`{"destinations": [], "brand": {"name": "B", "logo_url": "u"}}`), &payment); err != nil {
+		t.Fatal(err)
+	}
+	if payment.Brand == nil || payment.Brand.Name != "B" || payment.Brand.LogoURL != "u" {
+		t.Fatalf("%+v", payment.Brand)
+	}
+	if payment.ChildPlatform == nil || *payment.ChildPlatform != *payment.Brand {
+		t.Fatalf("deprecated field must mirror brand: %+v", payment.ChildPlatform)
+	}
+	if payment.ChildPlatform == payment.Brand {
+		t.Fatal("mirror must be an independent copy")
+	}
+}
+
+func TestPaymentParsesChildPlatformAlias(t *testing.T) {
+	var payment Payment
+	if err := json.Unmarshal([]byte(`{"destinations": [], "child_platform": {"name": "C", "logo_light_url": "ul"}}`), &payment); err != nil {
+		t.Fatal(err)
+	}
+	if payment.Brand == nil || payment.Brand.Name != "C" || payment.Brand.LogoLightURL != "ul" {
+		t.Fatalf("%+v", payment.Brand)
+	}
+	if payment.ChildPlatform == nil || *payment.ChildPlatform != *payment.Brand {
+		t.Fatalf("%+v", payment.ChildPlatform)
+	}
+}
+
+func TestPaymentParsesBothBrandWins(t *testing.T) {
+	var payment Payment
+	if err := json.Unmarshal([]byte(`{"destinations": [], "brand": {"name": "B"}, "child_platform": {"name": "C"}}`), &payment); err != nil {
+		t.Fatal(err)
+	}
+	if payment.Brand.Name != "B" || payment.ChildPlatform.Name != "B" {
+		t.Fatalf("%+v %+v", payment.Brand, payment.ChildPlatform)
+	}
+}
+
+func TestPaymentParsesNeitherBrand(t *testing.T) {
+	var payment Payment
+	if err := json.Unmarshal([]byte(`{"destinations": [], "platform": "P"}`), &payment); err != nil {
+		t.Fatal(err)
+	}
+	if payment.Brand != nil || payment.ChildPlatform != nil || payment.Platform != "P" {
+		t.Fatalf("%+v", payment)
+	}
+}
+
+func TestPaymentUnmarshalRejectsMalformedJSON(t *testing.T) {
+	var payment Payment
+	if err := json.Unmarshal([]byte(`{"destinations": "nope"}`), &payment); err == nil {
+		t.Fatal("expected error")
 	}
 }
