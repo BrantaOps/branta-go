@@ -390,13 +390,24 @@ func TestAddPaymentLeavesCallerBrandUnchangedAndCopyCarriesBrand(t *testing.T) {
 	}
 	for name, payment := range cases {
 		client := &mockClient{}
-		before := payment
-		beforeBrand, beforeChild := payment.Brand, payment.ChildPlatform
+		var beforeBrand, beforeChild Platform
+		if payment.Brand != nil {
+			beforeBrand = *payment.Brand
+		}
+		if payment.ChildPlatform != nil {
+			beforeChild = *payment.ChildPlatform
+		}
 		if _, err := svc(client, nil, nil).AddPayment(context.Background(), payment, nil); err != nil {
 			t.Fatal(name, err)
 		}
-		if payment.Brand != beforeBrand || payment.ChildPlatform != beforeChild || payment.Destinations[0].Value != addr {
-			t.Fatalf("%s: caller changed: %+v vs %+v", name, payment, before)
+		if payment.Brand != nil && *payment.Brand != beforeBrand {
+			t.Fatalf("%s: caller Brand changed: %+v vs %+v", name, *payment.Brand, beforeBrand)
+		}
+		if payment.ChildPlatform != nil && *payment.ChildPlatform != beforeChild {
+			t.Fatalf("%s: caller ChildPlatform changed: %+v vs %+v", name, *payment.ChildPlatform, beforeChild)
+		}
+		if payment.Destinations[0].Value != addr {
+			t.Fatalf("%s: caller destination changed: %+v", name, payment.Destinations[0])
 		}
 		posted := client.posted[0]
 		if posted.Brand == nil || posted.Brand.Name != "Shop" || posted.Brand.LogoURL != "https://example.com/l.png" {

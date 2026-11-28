@@ -110,7 +110,7 @@ func TestConsumerTypesAreReachable(t *testing.T) {
 	if brand == nil || brand.Name != "Shop" || payment.ChildPlatform != nil {
 		t.Fatalf("%+v", payment)
 	}
-	//lint:ignore SA1019 the deprecated alias stays on the public surface.
+	// The deprecated alias stays on the public surface.
 	deprecated := branta.NewPaymentBuilder().SetChildPlatform("Shop", "", "").Build()
 	if deprecated.Brand == nil || deprecated.Brand.Name != "Shop" {
 		t.Fatalf("%+v", deprecated)

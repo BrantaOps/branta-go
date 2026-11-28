@@ -35,7 +35,6 @@ func main() {
 		SetDescription("Test description").
 		AddMetadata("test_key", "test value").
 		SetTTL(4000).
-		SetBrand("Example Brand", "", "").
 		AddDestination("bc1qexampleaddress", branta.BitcoinAddress).
 		Build()
 

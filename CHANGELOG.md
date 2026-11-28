@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `PaymentBuilder.SetChildPlatform` and `Payment.ChildPlatform`. Use `SetBrand` and `Brand`. `SetChildPlatform` delegates to `SetBrand`. A payment with only `ChildPlatform` set is still sent, as `brand`.
 
 ### Changed
-- `POST /v2/payments` now sends `brand` and never `child_platform`. This requires a Branta server that accepts `brand`. Parsing accepts `brand` or `child_platform` (`brand` wins) and sets both `Brand` and `ChildPlatform`.
+- `POST /v2/payments` now sends `brand` and never `child_platform`. This requires a Branta server that accepts `brand`. Parsing accepts `brand` or `child_platform` (`brand` wins) and sets both `Brand` and `ChildPlatform`. A logo-domain mismatch on a brand now reports `brand.logo_url` / `brand.logo_light_url` in `LogoURLDomainMismatchError.Field` instead of `child_platform.*`.
 - `POST /v2/payments` now sends an `X-Branta-SDK` header (language and SDK version). GETs are unchanged.
 - `HMACSecret` on `BrantaApiOptions` is no longer marked `Deprecated`. Platforms with Require HMAC on need it to sign `AddPayment`. Only the per-client parent-platform flow is deprecated; a shared `APIKey` with `SetBrand` replaces it.
 
